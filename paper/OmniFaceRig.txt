@@ -1,0 +1,1420 @@
+                                            OmniFaceRig: Fully Automatic
+                                            Inner-Mouth-Aware Face Rigging Across Diverse
+                                            3D Character Topologies
+                                            Chao Wang∗,†,‡ , Guangyao Ma∗ , John Doublestein , Junming Chen , Yiming Lin , Zhaoen Su , Xiaomin Luo ,
+                                            Shiyang Cheng , Jie Shen , Doug Roble , Dilin Wang , Yilei Li† , Rakesh Ranjan†
+
+                                            Reality Labs, Meta
+                                            ∗
+                                             Equal contribution, † Project lead, ‡ Corresponding author
+
+                                            Facial rigging—creating FACS-based blendshapes together with inner-mouth geometry (teeth, gums,
+                                            and tongue)—remains a major bottleneck in 3D character production. Existing pipelines still re-
+arXiv:2606.08043v1 [cs.GR] 6 Jun 2026
+
+
+
+
+                                            quire substantial designer effort, especially for manual landmark annotation, per-character template
+                                            adjustment, and inner-mouth placement. We present OmniFaceRig, a fully automatic end-to-end
+                                            pipeline that converts a static surface-only 3D character mesh, with no pre-modeled oral cavity, into
+                                            an inner-mouth-aware FACS rig with up to 155 blendshapes, procedurally fitted teeth, gums, and
+                                            tongue, and re-packed UV/texture. OmniFaceRig supports diverse topologies—humans, humanoids,
+                                            long-muzzled animals (e.g., dogs, wolves, foxes), and short-muzzled animals (e.g., cats, bears, rabbits,
+                                            tigers)—with no manual landmarks, no user-provided templates, and no per-asset setup. The pipeline
+                                            combines hybrid VLM+CV riggability checking, multi-model face parsing, dense keypoint-driven tem-
+                                            plate registration, procedural inner-mouth construction, and collision-aware blendshape transfer. For
+                                            non-human characters, OmniFaceRig selects topology-specific face and inner-mouth templates and
+                                            uses collision-aware inner-mouth fitting to reduce teeth-face intersections without exposing users to
+                                            category-specific tuning. We also publicly release Omni-Bench, a freely available benchmark dataset
+                                            of 1,000 biped 3D characters with FACS facial blendshapes and inner-mouth geometry, spanning
+                                            humans, humanoids, cats, dogs, and other animals. Experiments show high final rigging success on
+                                            screened Omni-Bench inputs, nearly complete face detection recall from the segmentation ensemble,
+                                            reliable inner-mouth placement with low penetration, and 20–30 s end-to-end processing time per
+                                            asset on a single A100 GPU, including data I/O. Together, OmniFaceRig provides an automatic path
+                                            from static generated characters to animation-ready facial rigs across both human and non-human
+                                            topologies.
+
+                                            Date: June 9, 2026
+                                            Project page and dataset: https://omnifacerig.github.io
+
+
+
+
+                                        Contents
+
+                                        1 Introduction                                                                                                 2
+
+                                        2 Omni-Bench: Benchmark Dataset                                                                                3
+
+                                        3 OmniFaceRig Method                                                                                            5
+                                          3.1 Pipeline Overview . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+                                          3.2 Riggability Assessment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    5
+                                          3.3 Sapiens-Based Segmentation Models . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .         9
+                                          3.4 Face Detection and Segmentation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       9
+                                          3.5 Template Registration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    10
+                                          3.6 Blendshape Rig Construction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      13
+
+                                        4 Experiments                                                                                                  15
+
+
+                                                                                                  1
+    4.1 Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   15
+    4.2 Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      15
+    4.3 Evaluation Metrics and Baselines . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      18
+    4.4 Quantitative Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    18
+    4.5 Ablation Studies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    19
+    4.6 Latency Breakdown . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       20
+
+5 Related Work                                                                                                    21
+  5.1 3D Asset and Character Generation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .           21
+  5.2 Parametric Face Models vs. Blendshape Rigging . . . . . . . . . . . . . . . . . . . . . . . . .             21
+  5.3 Traditional and Learning-Based Facial Auto-Rigging . . . . . . . . . . . . . . . . . . . . . . .            22
+  5.4 Neural Face Avatars . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       23
+  5.5 Rigging for Non-Humanoid Characters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .           23
+
+6 Conclusions and Limitations                                                                                     24
+
+A Additional Qualitative Results                                                                                  30
+
+
+1   Introduction
+Facial rigging—creating FACS-based blendshapes and inner-mouth geometry (teeth, gums, and tongue) for
+3D character animation—remains one of the most labor-intensive steps in the character production pipeline.
+A skilled technical artist may spend hours to days sculpting blendshapes for a single character, involving
+careful topology design, facial landmark placement, expression sculpting, and teeth fitting.
+At the same time, 3D asset creation itself has become dramatically more accessible. Recent text-to-3D
+and image-to-3D methods can generate textured objects or characters directly from prompts or reference
+images (Poole et al., 2023; Lin et al., 2023; Jun and Nichol, 2023; Liu et al., 2023; Tang et al., 2024; Ren
+et al., 2023), including high-quality asset-generation systems such as Meta 3D AssetGen (Siddiqui et al., 2024)
+and its follow-on AssetGen2 model (Ranjan et al., 2025). However, these systems primarily produce static
+surface meshes and textures. For characters, the generated assets are often plausible as visual meshes but are
+not animation-ready facial rigs: they typically lack FACS controls, robust facial topology for deformation,
+and the oral-cavity geometry required for inner-mouth-aware expressions. This makes generated characters
+natural inputs to an automatic rigging pipeline, but not substitutes for such a pipeline.
+Existing rigging solutions address parts of this problem but remain incomplete and, in practice, only semi-
+automatic. Deformation transfer (Sumner and Popović, 2004) and parametric face models (Cao et al., 2014;
+Li et al., 2017) enable facial rig creation but assume compatible mesh topologies, require manual landmark
+annotation, and are designed primarily for human faces. Inner-mouth geometry (teeth, gums, and tongue) is
+particularly costly to author because the input mesh normally contains no corresponding interior surfaces: in
+production pipelines, teeth, gums, and tongue are typically placed and tuned by hand, and manually tuned
+or human-specific teeth templates often fail on stylized or non-human faces. We are not aware of a prior fully
+automatic, end-to-end pipeline that produces FACS blendshapes with newly generated inner-mouth geometry
+from a static surface-only mesh, especially across both human and non-human topologies.
+We present OmniFaceRig, an end-to-end pipeline for face auto-rigging across diverse 3D character topologies—
+including humans, humanoids, long-muzzled animals (e.g., dogs, wolves, foxes), and short-muzzled animals
+(e.g., cats, bears, rabbits, tigers). These animal labels describe coarse facial topology for template selec-
+tion rather than biological taxonomy: long-muzzled characters have elongated, forward-protruding snouts,
+while short-muzzled characters have compact or nearly absent snouts. Given a static surface-only 3D mesh
+with no pre-modeled oral cavity, OmniFaceRig produces a production-ready facial rig with up to 155 FACS
+blendshapes, procedurally generated inner-mouth geometry (teeth, gums, and tongue), and re-packed UV/-
+texture, all fully automatic with no manual intervention at any stage. In particular, OmniFaceRig eliminates
+the manual inner-mouth placement, landmark annotation, user-provided templates, and per-asset template
+setup that bottleneck prior pipelines, allowing the entire facial rig to be generated directly from the input
+mesh. Our key contributions are:
+
+
+                                                         2
+Figure 1 OmniFaceRig takes static surface-only 3D meshes with no pre-modeled oral cavity (top row) and fully
+automatically produces production-ready facial rigs with FACS blendshapes and generated inner-mouth geometry
+including teeth, gums, and tongue (bottom rows showing expressions and mouth details). The teaser highlights
+our support for diverse 3D character topologies—humans, humanoids, long-muzzled animals (e.g., dogs), and short-
+muzzled animals (e.g., bears)—within one unified rigging pipeline. Omni-Bench is released as a freely available
+benchmark of rigged biped characters spanning humans and animals.
+
+
+    1. Fully automatic, end-to-end face auto-rigging pipeline. OmniFaceRig starts from a static surface-only
+       input mesh and requires no manual inner-mouth placement, landmark annotation, user-provided tem-
+       plates, or per-asset template setup.
+    2. Inner-mouth-aware rig construction. OmniFaceRig procedurally generates teeth, gums, tongue, and
+       oral-cavity support geometry that are absent from the input mesh, then integrates them with FACS
+       blendshape transfer using ARAP+SDF fitting and collision-aware deformation.
+    3. Omni-Bench. We publicly release a benchmark dataset of 1,000 biped 3D characters with FACS facial
+       blendshapes and inner-mouth geometry (teeth, gums, and tongue), spanning humans (realistic + hu-
+       manoid, 13 occupations), cats (10 breeds), and dogs (10 breeds) with up to 12 appearance variations—all
+       in T-pose and all rigged by OmniFaceRig.
+    4. Generalization across diverse non-human topologies. Our method rigs long-muzzled animals (dogs, wolves,
+       foxes, etc.) and short-muzzled animals (cats, bears, rabbits, tigers, etc.) via a small library of topology-
+       specific templates with a nose-landmark-free design and ARAP+SDF teeth placement, demonstrating
+       that the same pipeline transfers from humans to animals without architectural changes.
+
+
+2     Omni-Bench: Benchmark Dataset
+To facilitate future research in automatic facial rigging, we make Omni-Bench publicly available as a bench-
+mark dataset of biped 3D characters with FACS facial blendshapes and inner-mouth geometry (teeth, gums,
+
+
+                                                         3
+Table 1 Comparison of 3D facial and character datasets. To our knowledge, Omni-Bench is the first dataset providing
+FACS blendshapes with inner-mouth geometry (teeth, gums, and tongue) for both human and animal full-character
+assets, along with AssetGen2-style text/image-to-3D generation pipeline data.
+
+ Dataset                          Year    Total Models         Species       FACS Blendshapes   Inner Mouth   Full Character   Text + 2D Image
+ BFM (Paysan et al., 2009)        2009         200             Human                ✗               ✗               ✗                ✗
+ CoMA (Ranjan et al., 2018)       2018         144             Human                ✗               ✗               ✗                ✗
+ VOCASET (Cudeiro et al., 2019)   2019       12 (4D)           Human                ✗               ✗               ✗                ✗
+ FaceScape (Zhu et al., 2023)     2020        16,940           Human                ✗               ✗               ✗                ✗
+ ICT FaceKit (Li et al., 2020b)   2020   1 (Parametric)        Human                ✓               ✓               ✗                ✗
+ Multiface (Wuu et al., 2022)     2022   13 (Multi-view)       Human                ✗               ✗               ✗                ✗
+ RaBit (Luo et al., 2023)         2023        1,500        Human & Cartoon          ✗               ✗               ✓                ✗
+ Anymate (Deng et al., 2025)      2025       230,000       Human & Animal           ✗               ✗               ✓                ✗
+ Omni-Bench (Ours)                2026       1,000          Human & Animal          ✓               ✓               ✓                ✓
+
+
+
+and tongue). The initial static character meshes are produced with a variant of AssetGen2 (Ranjan et al.,
+2025), a follow-on model in the Meta 3D AssetGen family (Siddiqui et al., 2024); all released assets are then
+selected from inputs that pass the initial VLM+CV riggability screen, are processed by OmniFaceRig, and
+are provided in biped T-pose with generated rig outputs.
+The development of robust facial rigging algorithms relies heavily on high-quality 3D datasets. Early datasets
+like BFM (Paysan et al., 2009) provided PCA-based morphable models but lacked diverse expressions.
+FaceScape (Zhu et al., 2023; Yang et al., 2020) significantly advanced the field with 16,940 topologically
+uniform models, though it only captures the outer facial surface. Multiface (Wuu et al., 2022) and VO-
+CASET (Cudeiro et al., 2019) provide high-quality scans for neural rendering and speech-driven animation,
+but do not provide FACS blendshape rigs. ICT FaceKit (Li et al., 2020b) offers a detailed morphable model
+including teeth, gums, and eyes, but as a single parametric model rather than a diverse dataset. Existing
+large-scale character datasets such as RaBit (Luo et al., 2023) and Anymate (Deng et al., 2025) provide many
+full-character assets, but they do not include FACS facial blendshapes or inner-mouth structures.
+Omni-Bench addresses these gaps with 1,000 rigged biped 3D characters, split into 500 human and humanoid
+characters and 500 animals. The human set covers realistic humans across 13 common occupations (astronaut,
+doctor, firefighter, soldier, chef, pilot, nurse, teacher, police officer, engineer, athlete, musician, scientist) as
+well as stylized humanoid characters (fantasy, sci-fi, and cyberpunk styles). The animal set is dominated by
+150 cats (10 breeds: Persian, Siamese, Maine Coon, Sphynx, Ragdoll, British Shorthair, Bengal, Abyssinian,
+Scottish Fold, Russian Blue) and 150 dogs (10 breeds: Husky, Pug, Labrador, German Shepherd, Corgi,
+Poodle, Golden Retriever, Bulldog, Beagle, Dalmatian), plus 200 other common animals amenable to rigging
+(e.g., bears, mice, tigers, lions, foxes, wolves, rabbits, deer); all of them are provided in biped form like the
+rest of Omni-Bench. Categories include up to 12 appearance variations. Figure 4 provides a visual overview
+of the dataset diversity and topology coverage.
+The riggability screen should be interpreted as an input eligibility filter rather than a guarantee of final rigging
+success. It removes obvious invalid assets—for example, missing faces, severe eye or mouth occlusions, non-
+standard viewpoints, or unsupported facial topologies—before full processing. A screened asset can still
+fail during later stages because of segmentation errors, unstable template fitting, or implausible mouth
+localization. We therefore report final Success Rate separately in the experiments as the percentage of
+screened Omni-Bench inputs for which the full OmniFaceRig pipeline completes and passes final geometric
+quality checks.
+As shown in Table 1, Omni-Bench stands out in three critical ways. First, it supports both human and
+animal characters within a unified rigging framework. Second, every model is equipped with a complete set
+of auto-generated FACS blendshapes (up to 155 shapes) that explicitly include teeth, gums, and tongue—a
+feature missing from most existing large-scale character datasets. Third, each asset includes the complete
+generation pipeline data: the initial text description, intermediate 2D reference image, and final AssetGen2-
+generated 3D mesh, making it a useful resource for text-to-3D generation (Siddiqui et al., 2024; Ranjan et al.,
+2025; Tang et al., 2024; Ren et al., 2023) and multimodal research. All assets are in biped T-pose and rigged
+by OmniFaceRig, providing a consistent and reproducible evaluation baseline.
+
+
+
+
+                                                                     4
+Table 2 Comparison of facial auto-rigging methods.     OmniFaceRig is the only compared method achieving fully
+automatic blendshape generation with no per-asset setup, supporting disconnected components including inner-mouth
+geometry (teeth, gums, and tongue), and generalizing across diverse human and animal character topologies. “No Per-
+Asset Setup” means no user-provided template, manual landmarking, or per-character fitting adjustment at inference
+time.
+
+ Method                                            Cross-Topology   No Manual Landmarks       No Per-Asset Setup    Output Format     Disconnected Parts   Inner Mouth   Animal Support
+ Deformation Transfer (Sumner and Popović, 2004)         ✗                  ✗                         ✗                  Mesh                 ✗                ✗               ✗
+ Example-Based (Li et al., 2010)                         ✗                  ✗                         ✗              Blendshapes              ✗                ✗               ✗
+ Li et al. (Li et al., 2020a)                            ✗                  ✗                         ✗              Blendshapes              ✗                ✗               ✗
+ Chandran et al. (Chandran et al., 2022b)                ✓                  ✗                         ✗                  Mesh                 ✗                ✗               ✗
+ NFR (Qin et al., 2023)                                  ✓                  ✓                         ✓             Mesh / Latent             ✗                ✗               ✗
+ NFDT (Chandran et al., 2025)                            ✓                  ✓                         ✓              Blendshapes              ✗                ✗            Limited
+ NFS (Cha et al., 2025)                                  ✓                  ✓                         ✓            Skinning Weights           ✓                ✗               ✗
+ RigAnyFace (Ma et al., 2025)                            ✓                  ✓                         ✓              Blendshapes              ✓                ✗               ✗
+ OmniFaceRig (Ours)                                      ✓                  ✓                         ✓              Blendshapes              ✓                ✓               ✓
+
+
+
+
+3     OmniFaceRig Method
+Before presenting the OmniFaceRig pipeline in detail, we position our system against prior facial auto-
+rigging work along the dimensions that matter most for production deployment: topology coverage, the
+need for manual landmarks or per-asset setup, the output rig format, support for disconnected components,
+inclusion of inner-mouth geometry, and animal generalization. Table 2 summarizes this comparison; among
+the compared methods, OmniFaceRig is the only one that satisfies all six criteria simultaneously, in particular
+adding fully procedural inner-mouth construction (teeth, gums, and tongue) and non-humanoid character
+support on top of the strongest existing learning-based pipelines. The rest of §3 describes how each of these
+properties is realized; §5 discusses the individual prior systems referenced in the table.
+
+3.1       Pipeline Overview
+OmniFaceRig takes a static surface-only 3D mesh with no pre-modeled oral cavity and produces a production-
+ready facial rig with FACS blendshapes and inner-mouth geometry (teeth, gums, and tongue) (Figure 2). The
+pipeline is organized into two stages. Stage 1 (Face Template Fitting) (§3.2–§3.5) lifts the input mesh into
+a canonical template space through a sequence of steps: we first render the input 3D mesh to a frontal-
+view character image, then perform face detection and cropping to localize the face region; the cropped face
+is parsed by a multi-model segmentation ensemble; a hybrid VLM+CV riggability assessment uses visual-
+semantic predictions together with CV segmentation signals to decide whether to proceed and to select the
+face/teeth template configuration; 2D and 3D keypoints are extracted from the final segmentation masks; and
+finally a rigid + non-rigid template registration aligns a canonical face template to the input face, producing
+a fitted face mesh. Stage 2 (Blendshape Rig Construction) (§3.6) takes the fitted template and constructs a
+production-ready FACS blendshape rig—fusing the fitted face with the original asset, procedurally generating
+and placing inner-mouth geometry (teeth, gums, and tongue), baking texture into a re-packed UV layout,
+and transferring blendshape deformations from a canonical rigged template to the asset.
+
+3.2       Riggability Assessment
+Before processing an asset through the rigging pipeline, OmniFaceRig performs an automatic eligibility check.
+This is critical in production settings where input assets are generated automatically (e.g., from text-to-3D
+models) and may include characters with no visible face, heavily occluded facial features, non-standard
+orientations, or facial topologies outside the current template library.
+Our riggability assessment is a VLM+CV hybrid that fuses three complementary signals computed from a
+single frontal render of the input asset: (i) a high-level VLM semantic check, (ii) a set of CV segmentation-
+mask checks, and (iii) a mouth-landmark quality gate used for human-like inputs. The three signals are
+summarized below at the level needed for the main pipeline; §3.2.1–§3.2.2 list the full per-question signal
+assignment and the geometric thresholds applied to each segmentation mask.
+VLM Understanding. We render the input 3D mesh from a frontal viewpoint and query a state-of-the-art
+Vision-Language Model (VLM) to identify: (1) the character archetype (human, humanoid, feline, canine,
+
+
+                                                                                          5
+Figure 2 OmniFaceRig pipeline architecture. The pipeline consists of two stages. Stage 1 (Face Template Fitting) takes
+a static surface-only 3D mesh, performs face detection/cropping, face segmentation, VLM+CV riggability assessment,
+landmark extraction, and dense keypoint-driven rigid + non-rigid template registration, producing a fitted template
+mesh aligned to the input face. Stage 2 (Blendshape Rig Construction) takes the fitted template and constructs a
+production-ready FACS blendshape rig through face mesh fusion, generated teeth registration and texture baking, and
+FACS blendshape transfer, producing inner-mouth geometry (teeth, gums, and tongue) and re-packed UV/texture
+that are not present in the input.
+
+
+or other); (2) face covering status (glasses, goggles, masks, eye patches); and (3) teeth state (open mouth,
+closed mouth, emotional expression). The VLM’s flexibility allows easy adaptation to new assessment criteria
+without retraining. The VLM has two roles. First, it filters out assets that are unlikely to be riggable by
+the current system, including no-face assets, faces with severe eye or mouth occlusion, and unsupported
+facial topologies such as highly exaggerated beaked birds or other shapes outside our human, long-muzzle,
+and short-muzzle template families. Second, for assets that pass this eligibility check, it selects downstream
+configuration choices: (i) the face template variant—one of human, long-muzzle, or short-muzzle—based on
+the character’s facial topology (see §3.5); and (ii) the inner-mouth archetype (human, canine, monster, or
+flat), which Stage 2 (§3.6) uses for inner-mouth fitting.
+CV Segmentation Filtering. After face localization, we compute face/eye/mouth segmentation masks using
+the multi-model ensemble described in §3.4 and apply a layered set of geometric checks. The first layer
+is an eligibility filter: assets where no valid face region is detected, or where the face area falls below a
+minimum threshold, are rejected. This catches cases where the VLM may be overconfident—for example,
+detecting a “face” on a purely mechanical character with no actual facial geometry. The second layer is a set
+of region-level criteria evaluated on the segmentation masks themselves—eye-region occlusion, eye-to-head
+size ratio, lip-seal curvature, and mask inclusion—each producing a binary pass/fail signal that participates
+in the hybrid decision. The full criterion list and the per-region thresholds are given in §3.2.2 (Table 5).
+Mouth-Landmark Quality Gate. For human-like inputs, the mouth-landmark signal from the segmentation
+ensemble is the most accurate way to verify that the mouth is well-formed, but it degrades silently on
+stylized or non-human characters where the landmark detector still emits points along an ill-defined contour.
+We therefore gate the landmark mouth evidence by a single lip-evenness statistic (§3.2.1) before it is allowed
+to influence the mouth decision; for non-human inputs the landmark signal is dropped entirely. This gate is
+
+
+                                                          6
+Table 3 Riggability assessment accuracy on a mixed validation set of approximately 500 assets with human ground-
+truth riggability labels. The hybrid VLM+CV approach achieves the best performance.
+
+                       Method                              Accuracy    Recall      F1
+                       VLM only                            94.69%     94.76%    94.71%
+                       CV segmentation filtering only      76.72%     94.87%    80.87%
+                       VLM + CV (Ours)                     >95%       >95%      >95%
+
+
+the third signal source in our checker.
+Hybrid Decision. The final eligibility decision is the conjunction of all per-question results from the three
+signals above: VLM for high-level semantic checks, segmentation masks for geometric criteria, and—for the
+mouth-detection question on human-like inputs—an explicit three-way vote combining VLM, segmentation,
+and landmark evidence (full fusion logic in §3.2.1). We evaluate the hybrid approach on a mixed rigga-
+bility validation set of approximately 500 assets, including Omni-Bench candidates, a subset of a separate
+benchmark collection, and additional generated or collected examples. This validation set intentionally in-
+cludes both riggable and non-riggable inputs; metrics compare the automatic checker decision against human
+ground-truth riggability labels:
+The hybrid approach leverages the VLM’s strong image understanding for high-level decisions while using
+CV signals for geometric validation, consistently outperforming either component alone.
+
+3.2.1   VLM+CV Signal Architecture
+
+Recall from §3.2 that the checker fuses three signals computed from a single frontal render. This section gives
+their precise definitions and the per-question assignment used by the fusion logic:
+   • VLM semantic signal. A state-of-the-art Vision-Language Model answers a fixed set of high-level ques-
+     tions about the rendered character (face type, number of faces, eye orbits, accessories, mouth state, teeth
+     visibility). These questions capture failure modes that are inherently semantic and hard to phrase as
+     geometric thresholds.
+   • Segmentation-mask signal. The face/eye/mouth masks produced by the segmentation ensemble (§3.4)
+     are evaluated against geometric plausibility criteria: presence of each region, inclusion inside the face
+     boundary, plausible eye-to-head ratio, and acceptable lip-seal curvature.
+   • Landmark-quality signal. For human-like faces, the regularity of mouth landmarks is summarized by a
+     lip-evenness statistic and used as a quality gate before mouth evidence enters the fusion step.
+The three signals are not treated as redundant: each question in the underlying checker template is assigned
+to the signal that is empirically most reliable for it, as summarized in Table 4.
+
+3.2.2   Geometric Criteria from Segmentation Masks
+
+The segmentation-based checks (Q5, Q9, Q10, plus mask inclusion tests) are summarized in Table 5. The
+thresholds are calibrated once on a development split and held fixed across all evaluations; they are de-
+liberately conservative so that the checker rejects mostly inputs that would otherwise crash or distort the
+downstream registration stage.
+
+3.2.3   Landmark-Assisted Mouth Validation
+
+For human-like inputs, we use mouth landmarks as a quality gate before they are fused with the VLM and
+segmentation signals. Let CVlip denote the coefficient of variation of the spacing between consecutive lip-
+contour landmarks. We mark the mouth landmarks as unreliable when CVlip exceeds a calibrated threshold;
+the underlying intuition is that on assets with a poorly modeled or absent mouth, the landmark detector still
+emits points, but those points become irregularly spaced. Failing the gate sets the landmark mouth evidence
+to “unavailable” for the subsequent fusion step. For non-human assets, where human-trained mouth-landmark
+
+
+                                                       7
+Table 4 Per-question signal assignment in the riggability checker. “VLM” uses the semantic signal alone; “Seg mask”
+replaces a VLM yes/no question with a direct geometric measurement; “Majority” fuses VLM, segmentation, and
+landmark evidence with a three-way vote.
+
+                            Q#     Aspect checked                         Signal source
+                           Q1      Face type (human / animal / other)     VLM
+                           Q2      Number of visible faces                VLM
+                           Q3      Number of visible eye orbits           VLM
+                           Q4      Mouth present and localizable          Majority
+                           Q5      Eye-region occlusion or obstruction    Seg mask
+                           Q6      Eyewear covering eyes                  VLM
+                           Q7      Mouth state                            VLM
+                           Q8      Teeth visibility                       VLM
+                           Q9      Eye-to-head size ratio                 Seg mask
+                           Q10     Lip-seal curvature                     Seg mask
+
+Table 5 Geometric criteria evaluated on the face, eye, and mouth segmentation masks. Each criterion produces a
+binary pass/fail signal that participates in the hybrid decision.
+
+         Criterion                      Pass condition
+         Mask presence                  face/eye/mouth masks non-empty
+         Eye inclusion                  eye mask inside face boundary
+         Mouth inclusion                mouth mask inside face boundary
+         Eye-region occlusion (Q5)      occluder overlap with eye region below threshold
+         Eye-to-head ratio (Q9)         eye/head area ratio in range
+         Mouth curvature (Q10)          lip-seal curvature in range
+
+
+detectors are not reliable, the landmark signal is ignored and the mouth decision is determined by the VLM
+and the segmentation mask alone.
+
+3.2.4   Mouth-Signal Fusion Logic
+
+The final eligibility decision is the conjunction of all per-question results in Table 4. Q1–Q3 and Q6–Q8 are
+decided directly by the VLM; Q5, Q9, Q10 are decided by the segmentation-mask checks in Table 5; and
+Q4 (mouth presence) uses explicit fusion because mouth localization is one of the most common downstream
+failure sources.
+Concretely, for a human-like asset, the mouth decision is:
+   1. If CVlip exceeds the landmark-quality threshold, treat the landmark evidence as unreliable and rely on
+      the VLM and segmentation signals.
+   2. Otherwise, take a majority vote over (i) the VLM mouth prediction, (ii) the segmentation-based mouth-
+      detected flag, and (iii) the landmark-based mouth-detected flag.
+For non-human assets, the same step degenerates to a conjunction of the VLM and segmentation-mask
+signals. The majority-vote design recovers the cases that a strict “VLM and segmentation” rule would miss
+when exactly one of the two signals is wrong but the other two agree.
+
+3.2.5   Discussion of Remaining Failure Modes
+
+Empirically, the hybrid VLM+CV checker on the mixed riggability validation set exhibits two dominant
+failure categories. The first is annotation borderline cases, where the ground-truth label itself is ambiguous
+(e.g., partially occluded faces or stylized characters that are arguably riggable). The second is VLM-only
+semantic errors: misclassification of eyewear, mouth state, or teeth visibility—attributes that segmentation
+masks and landmarks only partially corroborate. These are the natural targets for future improvement of
+
+
+                                                           8
+the checker, since the geometric and landmark signals have already absorbed most of the failures they are
+capable of catching.
+
+3.3     Sapiens-Based Segmentation Models
+3.3.1   Pretraining
+
+Our learned parser is built on Sapiens-1B (Khirodkar et al., 2024), a high-resolution ViT encoder pretrained
+on a large human-centric web corpus. The pretraining objective follows masked reconstruction: only a subset
+of patches is visible to the encoder, and the model learns to infer the missing image content from context.
+For dense human understanding, this inductive bias is particularly useful because the representation remains
+tied to the observed pixels instead of collapsing purely to global invariances. In practice, it preserves the
+local appearance and boundary cues that matter for rigging—hairlines, eyelids, lip contours, teeth, and
+inner-mouth structure—while still learning broad human semantics across pose, clothing, illumination, and
+style variation. We therefore use the pretrained Sapiens encoder as the common initialization for all Sapiens-
+based segmentation models in OmniFaceRig. We make two adaptations for our setting: first, we pretrain at
+512×512 resolution for efficiency and then briefly switch to 1024×1024 resolution to improve high-resolution
+facial boundary cues; second, we perform mid-stage unsupervised adaptation on 20M curated in-domain
+stylized character images. The pretraining corpus contains approximately 4B curated realistic human images.
+In downstream parsing experiments, these adaptations improve segmentation accuracy by 2–3%, and the
+in-domain adaptation makes supervised parser training more annotation-efficient.
+
+3.3.2   Segmentation Fine-Tuning
+
+Starting from this pretrained encoder, we attach a lightweight three-stage deconvolutional decoder that
+upsamples the token grid back to dense logits, and fine-tune only this head while keeping the ViT backbone
+frozen. We deploy two compatible checkpoints that share the same Sapiens-1B encoder but use different
+label spaces: a 41-class stylized parser for human-like characters and a 38-class humanoid parser for cartoon
+animals and strongly non-human characters. The stylized vocabulary retains fine face-specific classes such
+as facial skin, eyebrows, eyes, ears, lips, teeth, tongue, hair, glasses, and occluders, whereas the humanoid
+vocabulary trades some granularity for improved stability on cats, dogs, and heavily stylized characters.
+To make these parsers practical inside the rigging loop, we package them in a lightweight train–export–infer
+stack with JSON label configurations and TorchScript checkpoints. This lets the same encoder–decoder
+family serve dataset curation, ablation, and deployment on standard GPU servers without additional infras-
+tructure. At inference time, OmniFaceRig consumes only the face-relevant channels and collapses them into
+the geometric cues required downstream: face boundary, eyes, nose or muzzle extent, mouth opening, teeth
+or inner-mouth support, and accessory-aware occlusion regions.
+
+3.4     Face Detection and Segmentation
+Robust face detection and segmentation are critical prerequisites for template fitting.
+Render and face detection. For each input asset, we first render the 3D mesh from a frontal viewpoint into
+a 2D character image, then localize and crop the face region. The cropped face image is the input to all
+subsequent face-parsing modules.
+Multi-model segmentation. Real-time face parsing methods such as BiSeNet (Yu et al., 2018) have achieved
+strong results on photographic human faces, but AI-generated characters exhibit highly stylized proportions
+and diverse topologies that challenge any single detector or parser. To maximize coverage, we combine the
+Sapiens-based parsers from §3.3 with two complementary off-the-shelf models and adaptively select the best
+result for each facial region:
+   1. Face Landmark Detection: A face detection and landmark model providing 68-keypoint facial landmarks
+      with high precision on human and near-human faces. Used as the primary landmark source for eyes,
+      mouth, and face boundary on human characters.
+
+
+
+
+                                                      9
+   2. Sapiens (Khirodkar et al., 2024): The base human parser described in §3.3. It provides strong human
+      nose, lip, and facial-skin estimates, but degrades on strongly non-human faces because of its human-
+      centric training distribution.
+   3. SAM 3 (Segment Anything Model 3) (Carion et al., 2025): Building on the Segment Anything founda-
+      tion (Kirillov et al., 2023) and its video extension SAM 2 (Ravi et al., 2024), SAM 3 is a class-agnostic
+      segmentation foundation model that provides zero-shot segmentation masks from point or box prompts.
+      SAM 3 generalizes well to stylized and non-human faces but produces coarser boundaries compared
+      to landmark-based methods. We use SAM 3 for face region segmentation on characters where face
+      landmark detection and Sapiens fail.
+   4. Fine-Tuned Sapiens: Our stylized and humanoid Sapiens checkpoints from §3.3. The riggability stage
+      selects the 41-class stylized variant for human-like characters and the 38-class humanoid variant for
+      cats, dogs, and heavily stylized assets; these models serve as the primary dense parsers whenever face
+      landmark detection or the base Sapiens model becomes unreliable.
+For each input 3D asset, we render the mesh from a frontal viewpoint and run all four models in parallel.
+The system then adaptively selects the best detection and segmentation result for each facial part from the
+available models. Specifically:
+   • For human assets with standard facial proportions, we rely on face landmark detection (higher precision
+     for eyes and mouth) combined with Sapiens face parsing (for nose and skin regions).
+   • For stylized humanoid assets where face landmark detection may fail due to exaggerated proportions,
+     the system falls back to the 41-class fine-tuned Sapiens parser, which handles non-standard facial
+     proportions more robustly.
+   • For animal assets (felines, canines) where both face landmark detection and standard Sapiens fail, the
+     system uses the 38-class humanoid Sapiens parser (primary) with SAM 3 (fallback) for face boundary
+     and region segmentation.
+   • Automatic fallback is applied at the per-region level: if the preferred model fails for a specific facial
+     part (e.g., nose segmentation on a cat), the system seamlessly switches to the next-best model for that
+     region only.
+The combined multi-model ensemble achieves a face detection recall of nearly 100% across our test sets,
+compared to 88% for the best single model in isolation. This improvement is especially pronounced on
+challenging cases: animal characters with fur-covered face boundaries, humanoid characters with exaggerated
+feature proportions, and characters wearing partial face accessories.
+Landmark Extraction (2D & 3D). After segmentation, we extract 2D and 3D keypoints from the final segmen-
+tation masks. 2D landmarks for the face boundary, eyes, nose or muzzle, and mouth are read from mask
+contours and face landmark predictions. We then back-project each 2D landmark onto the input 3D mesh
+by ray-casting from the rendered camera through the pixel and intersecting the asset surface, yielding the
+paired 3D position. The resulting 2D + 3D keypoint correspondences are the input to template registration
+(§3.5).
+
+3.5     Template Registration
+3.5.1   Template Design
+
+The core of OmniFaceRig’s face fitting stage is a small library of quad-mesh templates with anchor keypoints,
+designed for robust fitting across diverse character topologies. The anchor keypoints correspond to facial
+landmarks (eyes, mouth, face boundary) whose 3D positions are computed from the segmentation ensemble
+output (§3.4). To accommodate the wide variation in facial shape across topologies, we provide three face
+template variants, and the VLM (§3.2) automatically selects the appropriate one for each input asset:
+   • Human template — targets human and humanoid characters with conventional facial proportions (flat-
+     fronted face, defined chin, eyes and mouth on roughly the same plane).
+
+
+
+                                                      10
+                                           (a) Single-model-dominant case.
+
+
+
+
+                                    (b) Ensemble case (per-region fusion needed).
+
+Figure 3 Multi-model face detection and segmentation ensemble. Four models run in parallel; the system adaptively
+selects the best result per facial region. (a) On a bear, fine-tuned Sapiens already produces a reliable parse and the
+final result mostly inherits from it. (b) On a fox, fine-tuned Sapiens fails (e.g., spuriously detecting two mouths) and
+no other single model is fully reliable either; the final mask is assembled by picking the best per-region output across
+the four models.
+
+
+   • Long-muzzle template — targets long-muzzled animals with elongated, forward-protruding snouts, such
+     as dogs, wolves, foxes, and horses.
+   • Short-muzzle template — targets short-muzzled animals with compact or nearly absent snouts, such as
+     cats, bears, rabbits, and tigers.
+All three templates share three common design principles that make fitting robust across diverse character
+types:
+   • Nose-landmark-free design. Anchor target positions are computed by uniformly sampling along the
+     corresponding segmentation-mask boundary, and nose anchors are particularly fragile under this scheme
+
+
+                                                          11
+        for two compounding reasons. First, nose segmentation accuracy itself is consistently low on animal
+        faces (feline noses are small and short; canine noses merge into the muzzle) and on many stylized
+        humanoids, so the underlying mask is unreliable. Second, even when the nose mask is plausible, the
+        nose contour tends to be small, irregular, or weakly defined, so uniform boundary sampling yields
+        unstable keypoints that do not correspond across assets. We therefore exclude the nose region from
+        the anchor keypoints entirely; the nose vertices are positioned by the optimization itself, guided by
+        the surrounding border, eye, and mouth anchors. This makes fitting independent of nose segmentation
+        quality, and the resulting nose region naturally adapts to actual face proportions—compact for cats,
+        elongated for dogs, standard for humans.
+   • Decoupled fitting and animated topology. The fitting template (optimized for keypoint correspondence)
+     and the animated topology (designed with radial edge loops around eyes and mouth for muscle-direction
+     deformation) are maintained as separate meshes linked by UV correspondence. This decoupling allows
+     independent optimization: the fitting template can be modified for better landmark matching without
+     affecting the animation-quality edge flow, and vice versa.
+   • Minimum region fitting. The template adheres to the convex hull of facial features rather than extending
+     to the neck and chin. This “minimum region” design produces tighter fits, reduces artifacts at the
+     face-asset merge boundary, and improves robustness on characters with unusual neck or chin geometry
+     (e.g., characters with armor, scarves, or elongated chins).
+
+3.5.2    Keypoint Computation and Fallback Mechanisms
+
+The template fitting relies on dense facial keypoint correspondences between the 68 template anchor vertices
+and their target positions on the input asset face. These target positions are computed from the segmentation
+ensemble: eye corners and contours from face landmark detection or fine-tuned Sapiens, mouth corners from
+landmark detection, and face boundary from segmentation mask edges.
+To achieve zero invalid keypoint errors across all test assets, we implement three fallback mechanisms:
+  1. Mesh-surface fallback for border keypoints. After correcting invalid border keypoints to the nearest face
+     mask boundary, some corrected positions still fail 3D projection because the face mask and the actual
+     mesh surface do not perfectly overlap. When a border keypoint has no valid 3D position after mask-
+     boundary correction, we search for the nearest pixel on the actual mesh surface and compute the 3D
+     position directly from the mesh geometry at that pixel.
+  2. 3D anchor-based fallback. When a keypoint’s 2D-to-3D projection fails (e.g., the 2D position lands in
+     an area with no mesh geometry), we fall back to computing its 3D position from the already-resolved
+     3D positions of neighboring anchor keypoints, maintaining a running map of resolved positions so that
+     later keypoints can reference those resolved earlier.
+  3. Adaptive eye mask selection. Both segmentation-based and landmark-based eye masks can contribute
+     to the face boundary computation, but including both can produce an overly large convex hull. We use
+     only one eye mask source, selected adaptively: human assets use landmark-based eyes (higher precision),
+     non-human assets use segmentation-based eyes (more robust), with auto-fallback if the preferred source
+     is unavailable.
+
+3.5.3    Template Fitting Optimization
+
+Given the template mesh and computed keypoint correspondences, the fitting stage deforms the template to
+match the input asset via a two-stage optimization.
+Stage 1: Global Rigid Alignment. We find the best rigid transformation (rotation R, scale s, translation t)
+aligning template keypoints vi to asset keypoints pi by minimizing:
+                                                X
+                                       Erigid =    ∥sRvi + t − pi ∥2                                    (1)
+                                                 i∈K
+
+where K is the set of corresponding keypoints.
+
+
+                                                       12
+Stage 2: Per-Vertex Non-Rigid Deformation. We optimize per-vertex displacements di for all vertices to
+minimize a composite energy function:
+                      E(D) = λ1 Ecorr + λ2 Esmooth + λ3 Eedge + λ4 Etri + λ5 Eflip + λ6 Ereg                  (2)
+where each energy term controls a different aspect of data fitting or geometric regularization to make this
+fitting pipeline robust to various input cases. The terms are defined as follows:
+Correspondence energy (Ecorr ) is the main data term that pulls the template keypoints toward their corre-
+sponding asset keypoints:                               X
+                                             Ecorr =          H(∥vi′ − pi ∥)                                  (3)
+                                                        i∈K
+
+where vi′ = vi + di represents the deformed template vertex positions, pi represents target landmark points,
+and H is a robust penalty function such as a Huber loss to ignore outliers.
+Smoothness energy (Esmooth ) enforces smooth deformations by encouraging neighboring vertices connected
+by a mesh edge E to move in a similar way:
+                                                             X
+                                            Esmooth =                 ∥di − dj ∥2                             (4)
+                                                            (i,j)∈E
+
+
+Edge-length preservation energy (Eedge ) encourages the deformation to remain locally rigid by preserving
+original edge lengths up to global scale:
+                                                X                                2
+                                    Eedge =             ∥vi′ − vj′ ∥ − ∥vi − vj ∥                             (5)
+                                              (i,j)∈E
+
+
+Triangle shape preservation energy (Etri ) preserves local triangle shapes more strongly than edge-length preser-
+vation alone and prevents skinny or sheared triangles:
+                                                 X
+                                          Etri =     ∥Gt − G′t ∥2F                                            (6)
+                                                        t∈T
+
+where Gt and G′t denote triangle shape matrices encoding the edge lengths and angles before and after
+deformation, respectively.
+Triangle flip penalty (Eflip ) penalizes orientation reversal and reduces triangle flips and foldovers to prevent
+self-intersections:                                   X
+                                            Eflip =         max(0, −nt · n′t )3                               (7)
+                                                      t∈T
+
+where nt and n′t denote triangle normals before and after deformation, respectively.
+Offset regularization energy (Ereg ) discourages unnecessarily large deformations and improves numerical sta-
+bility:                                                       X
+                                                  Ereg =              ∥di ∥2                                  (8)
+                                                                i
+
+For normalized meshes, this optimization achieves near-zero alignment error (< 10−5 ). The nose-landmark-
+free template design and triangle flip penalty ensure zero crashes across all animal assets in Omni-Bench,
+naturally adapting to diverse face proportions (compact for cats, elongated for dogs) without category-specific
+tuning.
+
+3.6       Blendshape Rig Construction
+Given the fitted face mesh produced by Stage 1 (§3.5), Stage 2 constructs a production-ready FACS blend-
+shape rig in four steps. The original asset is assumed to provide only the visible surface and source textures,
+with no pre-existing teeth, gums, tongue, or oral-cavity geometry. Stage 2 therefore consumes three addi-
+tional inputs: the original static asset mesh (for surrounding geometry and source textures), the inner-mouth
+template selected by the VLM in Stage 1 (§3.2), and a canonical FACS blendshape template.
+
+
+                                                              13
+3.6.1   Face Mesh Fusion
+
+The fitted template positions are first transferred to a high-quality animated topology mesh via UV corre-
+spondence, then reprojected onto the input character geometry. Eye regions are inset using virtual eyeball
+centers (computed via Procrustes alignment of eyelid vertices) to allow eyelid closure without self-intersection.
+The prepared template then replaces the face region on the original mesh: a 3D convex hull is computed for
+a subtractive boolean (cut out the old face), the template border vertices are stitched to the remaining mesh
+boundary via closest-point welding, and small-edge collapse removes degenerate polygons (merge in the new
+face). This ensures proper radial topology flow around eyes and mouth for high-quality facial deformation.
+This operation is intentionally local: it preserves the asset’s identity, hairstyle, and non-face geometry while
+introducing the radial edge flow that downstream expression deformation relies on.
+
+3.6.2   Inner-Mouth Construction
+
+Because the input contains no oral cavity, the inner-mouth geometry (teeth, gums, and tongue) must be
+synthesized rather than registered. OmniFaceRig synthesizes the missing inner-mouth structures from a
+small library of inner-mouth template archetypes, summarized in Table 6; the appropriate archetype is
+selected by the VLM during Stage 1 from the rendered view of the character.
+
+Table 6 Inner-mouth template archetypes and their typical targets. The VLM in Stage 1 selects one archetype per
+asset, which determines the teeth/gum/tongue template that is warped into the fitted mouth cavity.
+
+                       Archetype     Typical target characters
+                       Human         realistic humans and humanoid characters
+                       Canine        long-muzzled animals (e.g., dogs, wolves, foxes)
+                       Monster       stylized fantasy creatures with non-standard teeth
+                       Flat          characters with minimal or absent oral structure
+
+The selected teeth template is warped to the fitted mouth interior using Radial Basis Function (RBF) de-
+formation, followed by a rigid transform with non-uniform scale. To prevent teeth protrusion—especially
+critical for muzzled animal faces—we employ As-Rigid-As-Possible (ARAP) deformation (Sorkine and Alexa,
+2007) for initial placement, then iteratively refine using a Signed Distance Field (SDF): the convex hull of the
+teeth geometry is converted to an SDF, and any face mesh points intersecting the teeth volume are smoothly
+pushed outward along the SDF gradient. Gum and tongue geometry are fitted simultaneously, connected to
+the inner mouth surface. This two-stage approach (ARAP + SDF) reliably prevents teeth-face intersections
+both at rest and during expression activation.
+
+3.6.3   Texture and UV Transfer
+
+After the new face and inner-mouth surfaces are inserted, the global UV layout is rebuilt. UV islands are
+re-packed using an automated UV layout solver to maximize packing area with no overlap between shells,
+with sufficient padding to prevent visible seams during MipMap rendering. The face region is scaled up to
+allocate approximately 10× more texel density than non-face regions, ensuring high-quality facial texture at
+all LOD levels, and the inner-mouth surfaces are placed on a separate texture channel to keep their material
+parameters independent. The original texture is resampled onto the new UV layout using a vectorized
+approach: for each pixel in the output texture, we find the barycentric coordinate and primitive ID on the
+merged mesh’s UV layout, convert to world-space position, find the closest point on the original mesh, and
+sample the source texture at the corresponding UV. This preserves the character’s identity and material
+details while letting the newly synthesized geometry inherit a coherent appearance.
+
+3.6.4   FACS Blendshape Transfer and Post-Processing
+
+Facial expressions are created by transferring blendshapes from the canonical FACS blendshape template to
+the merged character mesh using sparse deformation transfer (Sumner and Popović, 2004). For each reference
+shape, triangle-level affine deformations are computed and transferred to the target mesh’s triangle structure,
+preserving character-specific geometry while reproducing the expression. The transferred shapes are applied
+
+
+                                                       14
+to the merged mesh using Point Deform with Delta Mush smoothing to blend into adjacent non-template
+regions. Adapting the deformation gradients to the target character’s own proportions is what keeps the
+transferred expressions character-specific rather than collapsing the rig toward an “average human face,” and
+is what allows the same set of FACS shapes to be applied to humans, humanoids, long-muzzled animals, and
+short-muzzled animals without per-character authoring.
+Sparse deformation transfer alone cannot enforce certain physical and geometric constraints—eyelids must
+close without self-intersection, eye-gaze shapes require a known rotation center, jaw motion must move the
+lower teeth, and extreme mouth poses can re-introduce teeth-face intersections. A small set of expression-
+specific post-processing rules, summarized in Table 7, handles these cases.
+
+Table 7 Expression-specific post-processing rules applied after sparse deformation transfer. Each rule addresses a
+constraint that pure deformation transfer cannot enforce on its own.
+
+         Shape category                Refinement applied
+         Closed-eye shapes          upper-eyelid vertices snapped to lower lid and locally relaxed
+                                    for contact-aware closure
+         Eye-gaze shapes            eye-region vertices rotate around virtual eyeball centers from
+                                    Procrustes fit
+         Jaw-related shapes         lower-teeth subset moves coherently with the jaw, tracking
+                                    open/close motion
+         Collision-aware refinement SDF-based teeth-face penetration check re-applied per expres-
+                                    sion shape
+
+The system supports three configurable shape-set tiers selected per application: Core (13 shapes) for basic
+dialog and emotion on mobile characters, Additional (46 shapes) for finer muscle control suitable for mid-
+fidelity game characters, and Full (155 shapes) for production VR applications where expression fidelity is
+paramount. The output of Stage 2 is the final FACS blendshape rig, ready to be driven by arbitrary expression
+weights at run-time.
+
+
+4     Experiments
+Figure 5 presents representative qualitative results across the main topology families in Omni-Bench. Addi-
+tional qualitative grids extending Figure 5, with more identities, styles, expression frames, and mouth-detail
+close-ups, are provided in Appendix A.
+
+4.1   Setup
+We evaluate OmniFaceRig on the full Omni-Bench dataset (Section 2). All inference-time rigging and eval-
+uation experiments use a single NVIDIA A100 GPU; segmentation model fine-tuning is an offline training
+step and uses the separate multi-GPU setup described below.
+
+4.2   Implementation Details
+Sapiens Pre-Training. We use Sapiens-1B (Khirodkar et al., 2024) as the base segmentation backbone for all
+Sapiens-based parsers in OmniFaceRig. Following §3.3, the encoder is initialized with masked-reconstruction
+pretraining: we first train at 512×512 resolution for efficiency, then briefly switch to 1024×1024 resolution
+for high-resolution facial boundary cues. The pretraining corpus contains approximately 4B curated realistic
+human images. We then perform a mid-stage unsupervised adaptation on 20M in-domain stylized character
+images. In our downstream parsing experiments, these two stages improve segmentation accuracy by 2–3%,
+and the in-domain adaptation makes the subsequent supervised parser training more annotation-efficient.
+Fine-Tuned Sapiens Training. To extend Sapiens’ face parsing capability to stylized and non-human characters,
+we construct a custom training dataset of approximately 10,000 annotated 2D images covering humans,
+humanoids, and animal species such as felines, canines, ursines, and other stylized creatures, all rendered in
+
+
+                                                        15
+Figure 4 Omni-Bench dataset overview. A sample grid of representative characters from Omni-Bench, spanning humans,
+humanoids, cats, dogs, and other animals. Each cell shows a rendered frame of the rigged asset produced by OmniFac-
+eRig, with the expression sampled at random from the FACS rig (not the static input mesh). Omni-Bench contains
+1,000 rigged biped 3D characters in T-pose—500 human and humanoid characters covering 13 occupation archetypes
+plus stylized fantasy / sci-fi / cyberpunk humanoids, and 500 animals dominated by 150 cats and 150 dogs (10 breeds
+each) together with 200 other rigging-amenable species (bears, tigers, lions, foxes, wolves, rabbits, etc.). Every asset
+ships with its full text-to-3D provenance (text prompt, 2D reference image, final mesh) and an auto-generated FACS
+facial rig of up to 155 blendshapes with procedurally fitted teeth, gums, and tongue.
+
+
+
+                                                          16
+Figure 5 Qualitative OmniFaceRig results across diverse 3D characters from Omni-Bench. Each row is one character. The
+leftmost column is the input static surface-only mesh with no pre-modeled oral cavity; the remaining six columns
+are generated expression frames labeled at the top (e.g., surprise, smile, love, anger ), most involving open-mouth
+deformations that expose the procedurally generated inner-mouth geometry (teeth, gums, tongue) synthesized by
+Stage 2 (§3.6). Rows span the four topology families targeted by OmniFaceRig—realistic and stylized humans,
+humanoid characters, long-muzzled animals (dogs, wolves, foxes), and short-muzzled animals (cats, bears, tigers)—
+all produced by the same fully automatic pipeline. Three properties are visible across the grid: cross-topology
+generalization via the three-template + nose-landmark-free design of §3.5; intersection-free inner-mouth geometry
+under strong expressions via the ARAP+SDF placement of §3.6.2; and preserved character-specific identity from
+per-character sparse deformation transfer. Additional grids appear in Appendix A.
+
+
+
+
+                                                         17
+Table 8 Quantitative comparison with recent facial rigging methods on 200 human/humanoid heads. Baseline numbers
+(DT, NFR, RigAnyFace) are taken from RigAnyFace (Ma et al., 2025). All meshes are normalized to a unit sphere
+(radius 1 m). ∗ Requires manual correspondence annotations.
+
+                             Method                           MAE↓ Q95↓ Penet.↓
+                                                              (mm) (mm) (%)
+                             DT (Sumner and Popović, 2004)∗    2.93   8.41     –
+                             NFR (Qin et al., 2023)            2.77   7.21     –
+                             RigAnyFace (Ma et al., 2025)      1.01   2.94   0.17
+                             OmniFaceRig (Ours)                0.85   2.50   0.05
+
+
+
+frontal T-pose. Starting from the pretrained encoder, we attach a lightweight three-stage deconvolutional
+decoder and train two compatible parser heads: a 41-class stylized parser for human-like characters and
+a 38-class humanoid parser for cartoon animals and strongly non-human characters. For evaluation and
+geometric fitting, these fine-grained labels are collapsed into the face-relevant cues consumed by the rigging
+pipeline: face boundary, eyes, nose or muzzle extent, mouth opening, teeth or inner-mouth support, and
+accessory-aware occlusion regions.
+During fine-tuning, we freeze the Sapiens-1B ViT encoder to preserve its open-world visual features and
+train only the segmentation decoder heads. Training uses AdamW with a learning rate of 1 × 10−4 , cosine
+decay with 500 warmup steps, batch size 16, and class-balanced cross-entropy loss for imbalanced facial
+regions. Training runs for 50 epochs on 8× NVIDIA A100 GPUs, taking approximately 24 hours. We apply
+standard data augmentation: random horizontal flip, color jitter, random rotation (±15◦ ), and random scale
+(0.8–1.2×).
+The fine-tuned parsers achieve a mean Intersection-over-Union (mIoU) of 87.3% on our held-out test set after
+collapsing predictions to the rigging-relevant facial cues, compared to 62.1% for the original Sapiens parser.
+The improvement is most pronounced on animal faces: cat face mIoU improves from 31.2% to 84.5%, and
+dog face mIoU from 28.7% to 81.9%, while human face mIoU remains stable (89.1% → 91.2%).
+
+4.3   Evaluation Metrics and Baselines
+Drawing upon the evaluation protocols used by recent facial rigging methods (Ma et al., 2025; Qin et al.,
+2023; Cha et al., 2025), we employ a comprehensive set of metrics. We use Mean Absolute Error (MAE)
+and 95th-Percentile Vertex Error (MAE Q95) to measure the mean and worst-case per-vertex Euclidean
+distance between the predicted expression mesh and ground truth (normalized to a unit sphere). Penetration
+Rate measures the percentage of penetrating vertices between inner-mouth components (teeth, gums, and
+tongue) and the outer facial surface. To quantify pipeline robustness, we introduce Success Rate, tracking
+the percentage of successfully rigged assets among screened candidate inputs that have passed the VLM+CV
+riggability checker. Finally, Processing Latency measures the end-to-end execution time in seconds.
+For in-the-wild and non-humanoid evaluation, we utilize our proposed Omni-Bench.
+We benchmark our method against the most relevant recent baselines: Neural Face Rigging (NFR) (Qin
+et al., 2023), a pioneering neural method for in-the-wild facial meshes; Deformation Transfer (DT) (Sumner
+and Popović, 2004), the classic geometric baseline; and RigAnyFace (Ma et al., 2025), a strong recent method
+supporting disconnected components.
+
+4.4   Quantitative Results
+Table 8 presents the quantitative comparison against recent methods on 200 human/humanoid heads. Omni-
+FaceRig achieves the lowest mean vertex error (MAE: 0.85 mm) and worst-case error (MAE Q95: 2.50 mm),
+outperforming RigAnyFace by 16% and 15% respectively. Our collision-aware deformation transfer reduces
+the penetration rate to 0.05%, a 3.4× improvement over RigAnyFace, ensuring clean separation between
+inner-mouth components (teeth, gums, and tongue) and the outer facial surface. Beyond alignment qual-
+ity, OmniFaceRig also runs the full pipeline reliably on this screened evaluation set, with the riggability
+
+
+                                                      18
+Table 9 Quantitative comparison on a 300-asset human + humanoid subset of Omni-Bench. We restrict this evaluation
+to humans and stylized humanoids because DT and NFR are designed for human facial topology and do not generalize
+to non-human characters. RigAnyFace (Ma et al., 2025) is not included here because its code is not publicly available,
+so it cannot be re-evaluated on Omni-Bench. ∗ Requires manual correspondence annotations.
+
+                          Method                              MAE↓ Q95↓ Penet.↓ Succ.↑
+                                                              (mm) (mm) (%)      (%)
+                          DT (Sumner and Popović, 2004)∗       3.12    9.05     –      82.4
+                          NFR (Qin et al., 2023)               2.95    8.11     –      85.1
+                          OmniFaceRig (Ours)                   0.92    2.71    0.08    99.0
+
+
+Table 10 Ablation: segmentation model contribution. Face detection recall (%) on Omni-Bench. The four-model
+ensemble achieves nearly perfect recall by combining each model’s strengths.
+
+                          Model Config                 Human          Cat     Dog     Overall
+                          Face landmark only             92%          12%     18%      41%
+                          Sapiens only                   88%          35%     42%      55%
+                          SAM 3 only                     78%          71%     68%      72%
+                          Fine-tuned Sapiens only        90%          89%     85%      88%
+                          4-model ensemble (Ours)       100%      100%        97%     ∼99%
+
+
+checker filtering out unsupported inputs and the remaining assets all producing complete rigs. Note that
+OmniFaceRig evaluates a broader pipeline than the compared baselines (face fusion, inner-mouth synthesis,
+UV/texture re-bake, and FACS transfer in addition to surface alignment), and its 20–30 s end-to-end runtime
+on a single A100 GPU includes data I/O, which itself accounts for roughly 10–15 s of the total; the per-stage
+breakdown is reported in §4.6.
+Table 9 presents the evaluation on a 300-asset subset of Omni-Bench that combines realistic humans and
+stylized humanoids. We restrict this comparison to humans and humanoids because DT and NFR are designed
+for human facial topology and do not produce meaningful results on non-human characters; including them on
+Omni-Bench animal assets would not be a fair comparison. The evaluated inputs have first passed the initial
+VLM+CV riggability screen, which filters out assets with missing faces, severe occlusions, non-standard
+orientations, or unsupported facial topologies. On this human + humanoid subset, traditional methods
+like DT and early learning-based methods like NFR struggle with the stylized humanoid characters, while
+OmniFaceRig maintains sub-millimeter alignment error, a low penetration rate, and a near-perfect 99.0% final
+rigging success rate. Across the broader Omni-Bench set including animals, OmniFaceRig further exhibits
+zero crashes on all animal assets thanks to our multi-stage keypoint fallback mechanisms. Figure 5 shows
+qualitative rigging results across diverse character types and expression frames; additional qualitative grids
+covering more identities, styles, and topology families are provided in Appendix A.
+
+4.5   Ablation Studies
+Segmentation Model Ablation. We evaluate the contribution of each model in our four-model ensemble by
+measuring face detection recall on Omni-Bench when using each model individually versus the full ensemble
+(Table 10).
+Face landmark detection provides high precision on human faces (92%) but fails almost entirely on animals
+(12–18%), as it is trained exclusively on human face data. Standard Sapiens degrades on non-human faces
+(35–42%) due to its human-centric training, despite being a strong foundation model. SAM 3 offers the broad-
+est single-model coverage (72% overall) due to its class-agnostic design, but provides coarser segmentation
+boundaries than landmark-based methods. Fine-tuned Sapiens substantially improves animal face detection
+(85–89%) while retaining strong human performance (90%), validating the effectiveness of our fine-tuning
+strategy. The four-model ensemble with adaptive per-region selection achieves nearly 100% overall recall by
+combining the precision of face landmark detection on humans, fine-tuned Sapiens’ robustness on animals,
+and SAM 3’s fallback coverage for edge cases.
+
+
+                                                         19
+Figure 6 Why nose anchors are unreliable. Across five representative assets the nose region exhibits dramatic variation
+in both detection quality and contour shape. From left to right: (1) a human with a clean, well-detected nose (a
+positive baseline); (2) a human where nose detection outright fails; (3) a stylized humanoid where detection returns
+a mask but the contour is oddly shaped; (4) an animal where detection succeeds but the mask has the wrong overall
+nose shape; and (5) an animal where detection technically succeeds but the nose mask merges with the mouth into
+an irregular contour. Rows (top to bottom): input asset render; final nose segmentation mask; asset render with
+the mask overlaid. Even when detection succeeds, the strongly varying nose contour means that uniformly-sampled
+boundary keypoints do not correspond across assets, motivating our nose-landmark-free template design (§3.5).
+
+
+Nose Landmark Ablation. We evaluate the impact of our nose-landmark-free template design on animal face
+rigging quality. When nose anchor keypoints are included (as in prior template designs), the pipeline produces
+severely distorted nose-mouth regions on 78% of animal assets and crashes on 10%, driven by the two failure
+modes discussed in §3.5: incorrect nose segmentation, and—even when the nose mask is plausible—unstable
+keypoints from uniform boundary sampling on small, irregular nose contours. Removing nose anchors and
+allowing the optimization to position the nose region from the surrounding border, eye, and mouth anchors
+eliminates these distortion artifacts and reduces the crash rate to 0% across all animal assets in Omni-Bench.
+Figure 6 provides visual evidence for both failure modes across a range of character topologies.
+Riggability Checker. The hybrid VLM+CV approach outperforms either component alone (Table 3): the
+VLM provides strong archetype identification and accessory detection, while CV filtering catches geometric
+edge cases (no-face assets, degenerate meshes).
+
+4.6   Latency Breakdown
+The face pipeline executes on a single NVIDIA A100 GPU. End-to-end latency is approximately 20–30 s per
+asset, including data I/O. Stage 1 (riggability assessment, face parsing, keypoint extraction, and template
+fitting) takes 8–10 s, while Stage 2 (mesh fusion, inner-mouth fitting, UV/texture processing, and blendshape
+transfer) takes 10–15 s. Compared to manual sculpting workflows that typically take hours to days, this
+represents a reduction of 2–3 orders of magnitude.
+
+
+
+
+                                                          20
+5     Related Work
+
+5.1   3D Asset and Character Generation
+Text-to-3D and image-to-3D generation have rapidly lowered the barrier to creating 3D assets. Score-
+distillation methods such as DreamFusion (Poole et al., 2023) and Magic3D (Lin et al., 2023) optimize a NeRF
+or mesh through a 2D diffusion prior, while feed-forward latent-diffusion approaches such as Shap-E (Jun
+and Nichol, 2023), reference-conditioned models such as Zero-1-to-3 (Liu et al., 2023), and fast textured
+reconstruction systems such as SF3D (Boss et al., 2024) produce 3D objects directly from a text prompt
+or a single reference image. Meta 3D AssetGen (Siddiqui et al., 2024) targets higher-quality text-to-mesh
+generation with geometry, texture, and PBR materials, while AssetGen2 (Ranjan et al., 2025) extends this
+line of asset-generation models and has been used as the image-to-3D base model in WorldGen (Wang et al.,
+2025b), a representative text-to-3D world-generation system. Character-focused systems narrow this generic
+capability in two ways: Make-it-vivid (Tang et al., 2024) stylizes and re-textures existing 3D characters, and
+Make-a-character (Ren et al., 2023) composes textured anime-style avatars from descriptive text. A parallel
+wave of commercial 3D-generation services has made static character asset creation accessible to non-expert
+users at production scale. However, most of these systems focus on the visible exterior surface: their out-
+puts are static textured meshes, but they typically do not include animation-oriented facial topology (such
+as radial edge loops around eyes and mouth), FACS blendshape controls, or complete oral-cavity geometry
+(teeth, gums, tongue) needed for inner-mouth-aware animation. OmniFaceRig is therefore complementary to
+this line of work: it takes surface-only meshes of the kind produced by modern 3D generators and lifts them
+into animation-ready facial rigs in a fully automatic step, without sending the asset back to the generator or
+requiring manual cleanup of the produced geometry.
+
+5.2   Parametric Face Models vs. Blendshape Rigging
+Parametric face models provide statistical representations of human facial geometry. The 3D Morphable
+Model (3DMM) (Blanz and Vetter, 1999), FaceWarehouse (Cao et al., 2014), and FLAME (Li et al., 2017)
+established compact linear shape spaces for face reconstruction by capturing the principal modes of identity
+and expression variation in scanned human faces. Multilinear extensions (Brunton et al., 2014; Vlasic et al.,
+2006) explicitly factor identity from expression, and disentangled latent representations (Abrevaya et al.,
+2019; Jiang et al., 2019) further isolate semantic shape components for more flexible control. Image-driven
+reconstruction methods such as CoMA (Ranjan et al., 2018)—a graph-convolutional autoencoder defined
+on a fixed mesh topology—and DECA (Feng et al., 2021)—which regresses FLAME coefficients plus per-
+vertex detail displacements from a single in-the-wild image—leverage these models to recover animatable
+faces directly from photographs or video. By design, however, these models are usually bound to a fixed
+mesh topology and expression basis defined at scan-collection time, and they primarily assume adult human
+anatomy: applying them to a novel asset with arbitrary topology, stylized proportions, or non-human features
+often requires re-fitting a new mesh into the parametric basis (which can lose character-specific identity) or
+leads to unstable fits. OmniFaceRig sidesteps this constraint: it does not project the input asset into a
+fixed parametric space but instead deforms small topology-specific templates to match the input geometry,
+producing a character-specific blendshape set defined on the asset’s own surface.
+In contrast to the parametric line, production pipelines rely on the Facial Action Coding System (FACS) (Ek-
+man and Friesen, 1978) and per-character blendshape rigs (Lewis et al., 2014; Lewis and Anjyo, 2010), which
+give animators intuitive, localized control while preserving character-specific geometry (Seol et al., 2011; Ka-
+van et al., 2024). Orvalho et al. (Orvalho et al., 2012) survey the broader rigging landscape, covering the
+multi-decade evolution from fully manual sculpting toward semi-automatic, template-based pipelines. On
+the representation side, spectral methods have been explored for compact animation encoding (Wang et al.,
+2015), but a dominant production cost is still the per-character authoring effort of producing a complete
+FACS blendshape set, which historically requires a skilled technical artist for each new asset. Our method
+follows the production blendshape paradigm but removes the per-character authoring step targeted by our
+pipeline: from a single surface-only input mesh, OmniFaceRig procedurally constructs a full FACS rig and
+inner-mouth geometry without per-character template tuning or hand sculpting.
+
+
+
+
+                                                      21
+5.3   Traditional and Learning-Based Facial Auto-Rigging
+Traditional methods. Noh and Neumann (Noh and Neumann, 2001) introduced expression cloning by directly
+transferring per-vertex displacements between a source and target face mesh. Sumner and Popović (Sum-
+ner and Popović, 2004) reformulated this as deformation transfer over triangle-level affine transformations,
+providing a principled foundation that handles modest topology changes and is the kernel our blendshape
+transfer stage builds upon. Orvalho et al. (Orvalho et al., 2008) extended deformation transfer to retarget
+an entire FACS rig across different face models, while Li et al. (Li et al., 2010) demonstrated example-based
+facial rigging from a small set of artist-authored exemplar shapes. Seol et al. (Seol et al., 2012) added a
+spacetime formulation to clone temporally coherent expressions across blendshape systems, Liu et al. (Liu
+et al., 2011) proposed a unified framework for locally retargeting and rendering facial performance, and
+Ribera et al. (Ribera et al., 2017) addressed retargeting with automatic range-of-motion alignment between
+rigs whose deformation scales differ. These methods can produce high-quality outputs but share a common
+bottleneck: they assume carefully established dense correspondences between source and target meshes, often
+with manual setup. That correspondence step limits scalability to in-the-wild generated 3D assets, where
+topology and part structure vary widely across characters. OmniFaceRig retains the deformation-transfer
+kernel of Sumner and Popović but replaces the manual correspondence step with the segmentation-driven,
+dense keypoint registration of Stage 1, making the pipeline run unattended on arbitrary input meshes.
+Learning-based methods. Early data-driven approaches relied on direct regression: Li et al. (Li et al., 2020a)
+used CNNs over geometry images to predict per-vertex blendshape offsets, and Chandran et al. (Chandran
+et al., 2022b, 2020) introduced semantic deformation transfer that maps shape changes by semantic corre-
+spondence rather than triangle alignment, later refining the formulation with transformer architectures for
+topology-independent shape transfer (Chandran et al., 2022a). Interactive editing has been explored through
+sketch-based blendshape interfaces (Cetinaslan and Orvalho, 2020a,b), BSGen (Wang et al., 2023b) demon-
+strated automatic blendshape generation by learning a generative model over canonical shapes, and Ming et
+al. (Ming et al., 2024) produced high-quality mesh blendshapes from monocular face videos via neural inverse
+rendering. On the representation side, MeshCNN (Hanocka et al., 2019) and DiffusionNet (Sharp et al., 2022)
+provide mesh-native learned features that have been broadly adopted as encoder backbones for downstream
+rigging tasks.
+The recent wave of in-the-wild neural face rigging methods is closest in spirit to OmniFaceRig. Neural Face
+Rigging (NFR) (Qin et al., 2023) pioneered topology-agnostic neural deformation by learning a per-shape
+latent code together with a graph-conditioned decoder that generalizes across human face meshes; however,
+NFR operates on a single connected outer-surface component, does not handle disconnected sub-meshes
+(eyes, teeth, eyelashes), and is trained on human data. FaBRig (Zhu and Joslin, 2024) proposes a cloth-
+simulation-inspired transferable 3D face parameterization that improves robustness to topology variation,
+but still targets human faces. Neural Facial Deformation Transfer (NFDT) (Chandran et al., 2025) replaces
+the GNN/encoder–decoder design with a decoder-only transformer for high-fidelity transfer, while Neural
+Face Skinning (NFS) (Cha et al., 2025) proposes mesh-agnostic skinning weights that can in principle han-
+dle disconnected components, although NFS produces a skinning rig rather than a FACS blendshape set.
+RigAnyFace (Ma et al., 2025) is a strong recent system in this family and supports disconnected compo-
+nents at training scale by leveraging 2D supervision over unlabeled in-the-wild face data. However, these
+learning-based systems generally focus on outer-surface facial deformation: they do not synthesize the interior
+teeth/gums/tongue geometry needed for inner-mouth-aware expressions, and their training and evaluation
+are centered on human faces. Most recently, CANRig (Research, 2026) adds cross-attention mechanisms for
+variable local control of neural face rigs, and ControlFace (Jang et al., 2025) harnesses 3DMM-conditioned
+rendering for more flexible face rigging—both remain tied to human facial anatomy. Zero-shot stylization
+approaches (Wang et al., 2023a) and portrait animation methods such as MegActor (Yang et al., 2024) target
+stylized characters but operate in 2D image space, not as 3D blendshape rigs. DreamFace (Zhang et al.,
+2023) generates animatable 3D faces under text guidance, but it is a face generator that synthesizes char-
+acters from prompts, not a rigger that takes an existing static asset and adds animation. Relative to these
+lines of work, OmniFaceRig addresses two gaps that remain important for generated-character production:
+it procedurally synthesizes inner-mouth geometry (teeth, gums, and tongue) from a surface-only input mesh,
+and it generalizes the same rigging pipeline to non-human topologies—long- and short-muzzled animals—via
+topology-specific templates with no retraining (see Table 2 in §3 for a feature-level comparison).
+
+
+                                                      22
+5.4   Neural Face Avatars
+A parallel line of work reconstructs animatable head avatars using neural scene representations rather than
+explicit mesh rigs. Early neural radiance field (NeRF) methods demonstrated photorealistic novel-view syn-
+thesis of faces but lacked fine-grained expression control. The advent of 3D Gaussian Splatting (3DGS) shifted
+the field toward explicit point-based primitives that achieve real-time rendering while retaining differentiable
+optimization. GaussianAvatars (Qian et al., 2024) pioneered this direction by binding 3D Gaussians to the
+triangles of a parametric FLAME mesh, enabling full pose and expression control at photorealistic quality.
+HeadGaS (Dhamo et al., 2024) extended 3DGS to real-time animatable head avatars via a hybrid model that
+conditions Gaussian attributes on expression codes, while FlashAvatar (Xiang et al., 2024) embedded Gaus-
+sians in the UV space of a FLAME mesh for lightweight, high-fidelity reconstruction from short monocular
+videos.
+More recently, 3D Gaussian Blendshapes (Ma et al., 2024) introduced a representation directly analogous
+to classical mesh blendshapes: a neutral Gaussian model plus per-expression Gaussian offsets that are lin-
+early blended with FACS-like coefficients. RGBAvatar (Li et al., 2025) further streamlines this design by
+predicting a reduced blendshape basis from FLAME expressions, achieving online avatar reconstruction in
+under two minutes from a monocular video. MeGA (Wang et al., 2025a) proposes a hybrid mesh–Gaussian
+approach that models the face with an enhanced FLAME mesh and the hair with deformable 3D Gaussians,
+enabling high-fidelity rendering and downstream editing such as hairstyle alteration. Gaussian Eigen Models
+(GEM) (Zielonka et al., 2025) take a network-free approach by representing head avatars as linear combina-
+tions of Gaussian eigen-bases, providing lightweight and easily controllable avatars without runtime neural
+network inference. FATE (Zhang et al., 2025) reconstructs a full 360◦ head avatar with textural editing
+capabilities from a single monocular video. Avat3r (Kirschstein et al., 2025), developed concurrently at Meta,
+builds a large reconstruction model that regresses an animatable 3D Gaussian head avatar from just a few
+input images in a single forward pass, vastly reducing per-identity optimization.
+Despite their impressive rendering quality, these neural-avatar methods are primarily rendering-focused : they
+produce neural scene representations optimized for novel-view image synthesis rather than editable mesh
+assets. Their outputs are generally not directly exportable as standard blendshape rigs compatible with
+game engines, offline renderers, or production facial motion-capture retargeting pipelines. They are also
+trained around human head data and do not directly target animal or stylized non-human characters. Finally,
+inner-mouth structures such as teeth, gums, and tongue are typically represented only through appearance,
+if at all, rather than as explicit editable geometry. OmniFaceRig addresses a complementary problem: given
+an existing static mesh, including one generated by a 3D content creation model, it produces an explicit,
+topology-preserving FACS blendshape rig with procedurally fitted inner-mouth structures, and generalizes
+across human, humanoid, and animal topologies without retraining.
+
+5.5   Rigging for Non-Humanoid Characters
+Extending facial rigging to non-humanoid characters remains challenging because of the wide anatomical
+gap between human and animal faces—in muzzle length, eye placement, jaw articulation, fur coverage, and
+the inner-mouth structure itself (Danieau et al., 2019). The parametric-modeling line of work has produced
+quadruped shape models such as SMAL (Zuffi et al., 2017) and BARC (Rüegg et al., 2023), which capture
+body and pose variation across animal species using category-specific shape priors fitted from scans and
+silhouettes. These models are highly effective for animal body reconstruction and pose estimation, but they
+do not address facial rig construction or blendshape generation: the head is represented as a low-dimensional
+shape component rather than as an animatable, expression-driven facial rig. On the perception side, Cheng
+et al. (Cheng et al., 2024) addressed the domain gap between photographic human faces and artistic character
+designs by training facial landmark detectors that cover stylized characters as well; this kind of perception
+layer is a useful building block but does not close the rigging loop on its own. The recent in-the-wild
+neural rigging methods discussed above (Qin et al., 2023; Ma et al., 2025) are trained primarily on human
+face datasets and inherit human-centric inductive biases (eye placement, nose shape, mouth contour), which
+limits their direct transfer to cats, dogs, and stylized non-human characters. These lines of work leave two
+practical gaps for animal rigging: (i) they focus on the outer facial surface and do not construct explicit
+oral-cavity geometry, even though teeth and tongue layout differ dramatically between humans, canines,
+
+
+                                                      23
+felines, and stylized creatures; and (ii) they rely on a single facial-anatomy prior or trained model, whereas
+generated animals often require topology-specific handling. OmniFaceRig targets this setting directly: a
+robust multi-model segmentation ensemble identifies facial regions across species, a small library of topology-
+specific templates (human, long-muzzle, short-muzzle) handles geometric diversity without retraining, and
+procedurally fitted inner-mouth archetypes with ARAP+SDF placement produce clean inner-mouth geometry
+adapted to the species-specific oral structure of the input asset.
+
+
+
+
+Figure 7 Failure cases. From left to right: (1) a bird with a sharp beak and an unusual surface around the beak
+that segmentation cannot localize as a standard face; (2) a fish-like face with a very wide, elongated mouth that
+extends almost to the face boundary, on which segmentation tends to fill in the mouth region incorrectly; (3) an insect
+with oversized compound eyes located near the face boundary and an irregular mouth layout that disrupts landmark
+detection; (4) a seahorse-like animal with a strongly elongated or flattened snout (or a heavily occluded mouth)
+whose facial topology falls outside our template families. Rows (top to bottom): input render; final segmentation
+mask; asset render with the mask overlaid. In all four cases, segmentation either breaks down or the underlying
+face/mouth anatomy cannot be reliably fit by any of our human, long-muzzle, or short-muzzle templates.
+
+
+
+6    Conclusions and Limitations
+We presented OmniFaceRig, a fully automatic inner-mouth-aware face rigging pipeline for 3D characters.
+Given a static surface-only 3D mesh with no pre-modeled oral cavity, OmniFaceRig produces a production-
+ready rig with up to 155 FACS blendshapes and procedurally generated inner-mouth geometry (teeth, gums,
+and tongue), with no manual intervention at any stage. Our four-model detection and segmentation ensem-
+ble, combined with a nose-landmark-free template design, enables robust fitting across diverse 3D charac-
+ter topologies—humans, humanoids, long-muzzled animals, and short-muzzled animals—with sub-millimeter
+alignment error and zero pipeline crashes across all animal assets in Omni-Bench, while ARAP+SDF teeth
+placement keeps inner-mouth geometry intersection-free even for muzzled species. Together with the method,
+we make Omni-Bench publicly available as a benchmark dataset of 1,000 rigged biped characters with FACS
+
+
+                                                          24
+facial blendshapes and inner-mouth geometry, to catalyze future research in automatic facial rigging.
+Limitations. While OmniFaceRig significantly advances automatic facial rigging, it still has limitations. The
+current system is designed for visible-faced characters whose facial topology falls within our human, long-
+muzzle, and short-muzzle template families. Specialized animals with qualitatively different mouth and
+face anatomy—for example birds with sharp beaks, fish-like faces with flat snouts, insects with oversized
+compound eyes, or animals with unusually elongated snouts (Figure 7)—may be rejected by the riggability
+checker or produce unreliable fits even when segmentation succeeds. More generally, our template-family
+design improves robustness over a single universal template, but it does not provide a fully general facial
+parameterization for every possible animal or stylized character; extending coverage to new topology families
+will require additional templates, segmentation labels, and riggability criteria. Finally, although the 20–30 s
+runtime is fast relative to manual rigging, the current multi-stage pipeline is still better suited for offline or
+batch asset processing than real-time interactive editing. Future work will explore broader topology families,
+more adaptive template generation, and tighter integration of the perception and geometry stages.
+
+
+
+
+                                                       25
+References
+Victoria F Abrevaya, Adnane Boukhayma, Stefanie Wuhrer, and Edmond Boyer. A decoupled 3d facial shape model
+  by adversarial training. In International Conference on Computer Vision (ICCV), 2019.
+Volker Blanz and Thomas Vetter. A morphable model for the synthesis of 3d faces. In SIGGRAPH, pages 187–194,
+  1999.
+Mark Boss, Zixuan Huang, Aaryaman Vasishta, and Varun Jampani. SF3D: Stable fast 3D mesh reconstruction with
+ UV-unwrapping and illumination disentanglement. arXiv preprint arXiv:2408.00653, 2024.
+Alan Brunton, Timo Bolkart, and Chenglei Wu. Multilinear wavelets: A statistical shape space for human faces. In
+  European Conference on Computer Vision (ECCV), 2014.
+Chen Cao, Yanlin Weng, Shun Zhou, Yiying Tong, and Kun Zhou. Facewarehouse: A 3d facial expression database
+  for visual computing. IEEE Transactions on Visualization and Computer Graphics, 20(3):413–425, 2014.
+Nicolas Carion, Laura Gustafson, Yuan-Ting Hu, Shoubhik Debnath, Ronghang Hu, Didac Suris, Chaitanya Ryali,
+  Kalyan Vasudev Alwala, Haitham Khedr, Andrew Huang, et al. SAM 3: Segment anything with concepts. arXiv
+  preprint arXiv:2511.16719, 2025.
+Ozan Cetinaslan and Verónica Orvalho. Sketching manipulators for localized blendshape editing. Graphical Models,
+  108:101059, 2020a.
+Ozan Cetinaslan and Verónica Orvalho. Stabilized blendshape editing using localized jacobian transpose descent.
+ Graphical Models, 112:101091, 2020b.
+Seyeon Cha, Seongwon Yoon, Kyungjin Seo, and Junhyeok Noh. Neural face skinning for mesh-agnostic facial expres-
+  sion cloning. Computer Graphics Forum (CGF), 44(2):e70009, 2025.
+Prashanth Chandran, Derek Bradley, Markus Gross, and Thabo Beeler. Semantic deep face models. In International
+  Conference on 3D Vision (3DV), 2020.
+Prashanth Chandran, Loïc Ciccone, Markus Gross, and Derek Bradley. Local anatomically-constrained facial perfor-
+  mance retargeting. ACM Transactions on Graphics (TOG), 41(4):168:1–168:14, 2022a.
+Prashanth Chandran, Gaspard Zoss, Markus Gross, Paulo F U Gotardo, and Derek Bradley. Shape transformers:
+  Topology-independent 3d shape models using transformers. Computer Graphics Forum (CGF), 41(2):195–207,
+  2022b.
+Prashanth Chandran, Loïc Ciccone, Gaspard Zoss, and Derek Bradley. Neural facial deformation transfer. In Euro-
+  graphics, 2025.
+Shiyang Cheng et al. Facial landmark detection for stylized characters. In ACM Multimedia (ACM MM), 2024.
+Daniel Cudeiro et al. Capture, learning, and synthesis of 3d speaking styles. In Computer Vision and Pattern
+  Recognition (CVPR), 2019.
+Fabien Danieau, Ivan Gubins, Nicolas Olivier, Olivier Dumas, et al. Automatic generation and stylization of 3d facial
+  rigs. In IEEE Conference on Virtual Reality and 3D User Interfaces (VR), 2019.
+Yufan Deng, Yuhao Zhang, Chen Geng, Shangzhe Wu, and Jiajun Wu. Anymate: A dataset and baselines for learning
+  3d object rigging. arXiv preprint arXiv:2505.06227, 2025.
+Helisa Dhamo, Yinyu Nie, Arthur Moreau, Jifei Song, Richard Shaw, Yiren Zhou, and Eduardo Pernía Delgado.
+  Headgas: Real-time animatable head avatars via 3d gaussian splatting. In European Conference on Computer
+ Vision (ECCV), pages 456–474, 2024.
+Paul Ekman and Wallace V Friesen. Facial Action Coding System: A Technique for the Measurement of Facial
+  Movement. Consulting Psychologists Press, Palo Alto, CA, 1978.
+Yao Feng, Haiwen Feng, Michael J Black, and Timo Bolkart. Learning an animatable detailed 3d face model from
+  in-the-wild images. ACM Transactions on Graphics (TOG), 40(4):88:1–88:13, 2021.
+Rana Hanocka, Amir Hertz, Noa Fish, Raja Giryes, Shachar Fleishman, and Daniel Cohen-Or. Meshcnn: a network
+  with an edge. ACM Transactions on Graphics (TOG), 38(4):90:1–90:12, 2019.
+Wonhyeok Jang et al. ControlFace: Harnessing facial parametric control for face rigging. In Computer Vision and
+ Pattern Recognition (CVPR), 2025.
+
+
+                                                         26
+Zi-Hang Jiang, Qianyi Wu, Keyu Chen, and Juyong Zhang. Disentangled representation learning for 3d face shape.
+   In Computer Vision and Pattern Recognition (CVPR), 2019.
+Heewoo Jun and Alex Nichol. Shap-e: Generating conditional 3d implicit functions. arXiv preprint arXiv:2305.02463,
+  2023.
+Ladislav Kavan, John Doublestein, Martin Prazak, Matthew Cioffi, and Doug Roble. Compressed skinning for facial
+  blendshapes. In SIGGRAPH, 2024.
+Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su Zuo, James Austin, Roshan Zheng, et al. Sapiens:
+  Foundation for human vision models. In European Conference on Computer Vision (ECCV), 2024.
+Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer
+  Whitehead, Alexander C Berg, Wan-Yen Lo, Piotr Dollár, and Ross Girshick. Segment anything. In International
+  Conference on Computer Vision (ICCV), pages 4015–4026, 2023.
+Tobias Kirschstein, Javier Romero, Simon Giebenhain, and Matthias Nießner. Avat3r: Large animatable gaussian
+  reconstruction model for high-fidelity 3d head avatars. In International Conference on Computer Vision (ICCV),
+  2025.
+J P Lewis and Ken-ichi Anjyo. Direct manipulation blendshapes. IEEE Computer Graphics and Applications, 30(4):
+  42–50, 2010.
+J P Lewis, Ken Anjyo, Taehyun Rhee, Mengjie Zhang, Frederic H Pighin, and Zhigang Deng. Practice and theory of
+  blendshape facial models. In Eurographics State of the Art Reports (EG STAR), 2014.
+Hao Li, Thibaut Weise, and Mark Pauly. Example-based facial rigging. ACM Transactions on Graphics (TOG), 29
+ (4):32:1–32:6, 2010.
+Jiaman Li, Zhengfei Kuang, Yajie Zhao, Mingming He, Karl Bladin, and Hao Li. Dynamic facial asset and rig
+   generation from a single scan. ACM Transactions on Graphics (TOG), 39(6):215:1–215:18, 2020a.
+Linzhou Li, Yumeng Li, Yanlin Weng, Youyi Zheng, and Kun Zhou. Rgbavatar: Reduced gaussian blendshapes for
+  online modeling of head avatars. In Computer Vision and Pattern Recognition (CVPR), pages 10747–10757, 2025.
+Ruilong Li et al. Learning formation of physically-based face attributes. In Computer Vision and Pattern Recognition
+ (CVPR), 2020b.
+Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier Romero. Learning a model of facial shape and expression
+  from 4d scans. ACM Transactions on Graphics (TOG), 36(6):194:1–194:17, 2017.
+Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler,
+  Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution text-to-3d content creation. In Computer Vision and
+  Pattern Recognition (CVPR), 2023.
+Lijuan Liu, Youyi Zheng, Di Tang, Yi Yuan, Changjie Fan, and Kun Zhou. A framework for locally retargeting and
+   rendering facial performance. Computer Animation and Virtual Worlds (CAVW), 22, 2011.
+Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3:
+  Zero-shot one image to 3d object. In International Conference on Computer Vision (ICCV), 2023.
+Zhongjin Luo et al. Rabit: Parametric modeling of 3d biped cartoon characters with a topological-consistent dataset.
+  In Computer Vision and Pattern Recognition (CVPR), 2023.
+Shengjie Ma, Yanlin Zhao, Hongrui Zheng, Jingxiang Bao, and Yebin Liu. 3d gaussian blendshapes for head avatar
+  animation. In ACM SIGGRAPH 2024 Conference Proceedings, 2024.
+Wenchao Ma, Dario Kneubühler, Maurice Chu, Ian Sachs, Haomiao Jiang, and Sharon X Huang. Riganyface: Scaling
+ neural facial mesh auto-rigging with unlabeled data. In Neural Information Processing Systems (NeurIPS), 2025.
+Xuan Ming et al. High-quality mesh blendshape generation from face videos via neural inverse rendering. In European
+ Conference on Computer Vision (ECCV), 2024.
+Jun-yong Noh and Ulrich Neumann. Expression cloning. In SIGGRAPH, pages 277–288, 2001.
+Verónica Orvalho, Pedro Bastos, Frederic I Parke, Bruno Oliveira, and Xenxo Alvarez. A facial rigging survey. In
+  Eurographics State of the Art Reports (EG STAR), pages 183–204, 2012.
+Verónica C Orvalho, Ernesto Zacur, and Antonio Susin. Transferring the rig and animations from a character to
+  different face models. Computer Graphics Forum (CGF), 27(8):1997–2012, 2008.
+
+
+                                                        27
+Pascal Paysan et al. A 3d face model for pose and illumination invariant face recognition. In Advanced Video and
+  Signal Based Surveillance (AVSS), 2009.
+Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. In
+  International Conference on Learning Representations (ICLR), 2023.
+Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide Davoli, Simon Giebenhain, and Matthias Nießner. Gaus-
+  sianavatars: Photorealistic head avatars with rigged 3d gaussians. In Computer Vision and Pattern Recognition
+  (CVPR), pages 20299–20309, 2024.
+Dafei Qin, Jun Saito, Noam Aigerman, Thibault Groueix, and Taku Komura. Neural face rigging for animating and
+  retargeting facial meshes in the wild. In SIGGRAPH, pages 68:1–68:11, 2023.
+Anurag Ranjan, Timo Bolkart, Soubhik Sanyal, and Michael J Black. Generating 3d faces using convolutional mesh
+  autoencoders. In European Conference on Computer Vision (ECCV), 2018.
+Rakesh Ranjan, Andrea Vedaldi, Mahima Gupta, Christopher Ocampo, and Ocean Quigley. Introducing meta 3d
+  assetgen 2.0: A new foundation model for 3d content creation. https://developers.meta.com/horizon/blog/worlds/
+  AssetGen2/, 2025. Accessed: May 22, 2026.
+Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman
+  Rädle, Chloe Rolland, Laura Gustafson, et al. SAM 2: Segment anything in images and videos. arXiv preprint
+  arXiv:2408.00714, 2024.
+Jian Ren et al. Make-a-character: High quality text-to-3d character generation within minutes. arXiv preprint
+  arXiv:2312.15430, 2023.
+Disney Research. CANRig: Cross-attention neural face rigging with variable local control. In SIGGRAPH, 2026.
+Roger B Ribera et al. Facial retargeting with automatic range of motion alignment. ACM Transactions on Graphics
+ (TOG), 36(4), 2017.
+Nadine Rüegg, Silvia Zuffi, Konrad Schindler, and Michael J Black. BARC: Learning to regress 3d dog shape from
+  images by exploiting breed information. International Journal of Computer Vision (IJCV), 131:3041–3061, 2023.
+Yeongho Seol, Jaewoo Seo, Paul H Kim, J P Lewis, and Junyong Noh. Artist friendly facial animation retargeting.
+  ACM Transactions on Graphics (TOG), 30(6):162, 2011.
+Yeongho Seol et al. Spacetime expression cloning for blendshapes. ACM Transactions on Graphics (TOG), 31(2),
+  2012.
+Nicholas Sharp, Souhaib Attaiki, Keenan Crane, and Maks Ovsjanikov. Diffusionnet: Discretization agnostic learning
+  on surfaces. ACM Transactions on Graphics (TOG), 41(3):27:1–27:16, 2022.
+Yawar Siddiqui, Tom Monnier, Filippos Kokkinos, Mahendra Kariya, Yanir Kleiman, Emilien Garreau, Oran Gafni,
+  Natalia Neverova, Andrea Vedaldi, Roman Shapovalov, and David Novotny. Meta 3d assetgen: Text-to-mesh
+  generation with high-quality geometry, texture, and pbr materials. arXiv preprint arXiv:2407.02445, 2024.
+Olga Sorkine and Marc Alexa. As-rigid-as-possible surface modeling. Proc. SGP, pages 109–116, 2007.
+Robert W Sumner and Jovan Popović. Deformation transfer for triangle meshes. ACM Transactions on Graphics
+ (TOG), 23(3):399–405, 2004.
+Jiaxiang Tang et al. Make-it-vivid: Dressing your animatable biped cartoon characters from text. In Computer Vision
+  and Pattern Recognition (CVPR), 2024.
+Daniel Vlasic, Matthew Brand, Hanspeter Pfister, and Jovan Popović. Face transfer with multilinear models. In
+  SIGGRAPH Courses, 2006.
+Chao Wang, Yang Liu, Xiaohu Guo, Zichun Zhong, Binh Le, and Zhigang Deng. Spectral animation compression.
+  Journal of Computer Science and Technology, 30(3):540–552, 2015.
+Conall Wang, Di Kang, Hao Sun, Shenhan Qian, Simon Giebenhain, and Matthias Nießner. Mega: Hybrid mesh-
+  gaussian head avatar for high-fidelity rendering and head editing. In Computer Vision and Pattern Recognition
+ (CVPR), 2025a.
+Dilin Wang, Hyunyoung Jung, Tom Monnier, Kihyuk Sohn, Chuhang Zou, Xiaoyu Xiang, Yu-Ying Yeh, Di Liu, Zixuan
+  Huang, Thu Nguyen-Phuoc, Yuchen Fan, Sergiu Oprea, Ziyan Wang, Roman Shapovalov, Nikolaos Sarafianos,
+  Thibault Groueix, Antoine Toisoul, Prithviraj Dhar, Xiao Chu, Minghao Chen, Geon Yeong Park, Mahima Gupta,
+
+
+
+                                                        28
+  Yassir Azziz, Rakesh Ranjan, and Andrea Vedaldi. Worldgen: From text to traversable and interactive 3d worlds.
+  arXiv preprint arXiv:2511.16825, 2025b.
+Jiashun Wang, Xueting Li, Sifei Liu, Shalini De Mello, Orazio Gallo, Xiaolong Wang, and Jan Kautz. Zero-shot
+   pose transfer for unrigged stylized 3d characters. In Computer Vision and Pattern Recognition (CVPR), pages
+   8704–8714, 2023a.
+Jingying Wang, Yilin Qiu, Keyu Chen, Yu Ding, and Ye Pan. Fully automatic blendshape generation for stylized
+   characters. In IEEE Conference on Virtual Reality and 3D User Interfaces (VR), pages 347–355, 2023b.
+Cheng-hsin Wuu et al. Multiface: A dataset for neural face rendering. arXiv preprint arXiv:2207.11243, 2022.
+Jun Xiang, Xuan Gao, Yudong Zheng, Zerong Zheng, Yinghao Zhao, Chaopeng Han, Jingxiang Cai, Lei Zhu, Dong
+  Xu, Jingyi Yang, and Yebin Liu. Flashavatar: High-fidelity head avatar with efficient gaussian embedding. In
+  Computer Vision and Pattern Recognition (CVPR), pages 9642–9652, 2024.
+Haotian Yang et al. Facescape: a large-scale high quality 3d face dataset and detailed riggable 3d face prediction. In
+ Computer Vision and Pattern Recognition (CVPR), 2020.
+Shurong Yang, Huadong Li, Juhao Wu, Minhao Jing, Linze Li, Renhe Ji, Jiajun Liang, and Haoqiang Fan. Megactor:
+  Harness the power of raw video for vivid portrait animation. arXiv preprint arXiv:2405.20851, 2024.
+Changqian Yu, Jingbo Wang, Chao Peng, Changxin Gao, Gang Yu, and Nong Sang. BiSeNet: Bilateral segmentation
+  network for real-time semantic segmentation. In European Conference on Computer Vision (ECCV), pages 325–341,
+  2018.
+Jiahe Zhang, Zhiyuan Li, Xin Yu, Yifan Xu, and Wangmeng Zuo. Fate: Full-head gaussian avatar with textural
+   editing from monocular video. In Computer Vision and Pattern Recognition (CVPR), 2025.
+Longwen Zhang, Qiwei Qiu, Hongyang Lin, Qixuan Zhang, Cheng Shi, Wei Yang, Ye Shi, Sibei Yang, Lan Xu, and
+  Jingyi Yu. Dreamface: Progressive generation of animatable 3d faces under text guidance. ACM Transactions on
+  Graphics (TOG), 42(4):138:1–138:16, 2023.
+Chun A Zhu and Chris Joslin. Fabrig: A cloth-simulated transferable 3d face parameterization. In SIGGRAPH Asia,
+  2024.
+Hao Zhu et al. Facescape: 3d facial dataset and benchmark for single-view 3d face reconstruction. IEEE Transactions
+  on Pattern Analysis and Machine Intelligence (TPAMI), 2023.
+Wojciech Zielonka, Timo Bolkart, Thabo Beeler, and Andrea Tagliasacchi. Gaussian eigen models for human heads.
+ In Computer Vision and Pattern Recognition (CVPR), 2025.
+Silvia Zuffi, Angjoo Kanazawa, David W Jacobs, and Michael J Black. 3d menagerie: Modeling the 3d shape and
+   pose of animals. In Computer Vision and Pattern Recognition (CVPR), pages 5524–5532, 2017.
+
+
+
+
+                                                         29
+Appendix
+A    Additional Qualitative Results
+This appendix provides additional qualitative result grids beyond Figure 5 in the main text. Each grid follows
+the same controlled layout as the main qualitative figure: the leftmost column shows the original static surface-
+only asset, the middle columns show generated expression frames from the OmniFaceRig output, and the
+rightmost column shows a topology-specific mouth-detail close-up with textured rendering and a subtle mesh
+overlay. These additional results demonstrate robustness across more identities, styles, and topology families.
+
+
+
+
+                                                       30
+Figure 8 Additional qualitative OmniFaceRig results (1). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       31
+Figure 9 Additional qualitative OmniFaceRig results (2). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       32
+Figure 10 Additional qualitative OmniFaceRig results (3). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       33
+Figure 11 Additional qualitative OmniFaceRig results (4). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       34
+Figure 12 Additional qualitative OmniFaceRig results (5). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       35
+Figure 13 Additional qualitative OmniFaceRig results (6). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       36
+Figure 14 Additional qualitative OmniFaceRig results (7). Each row shows one input asset and multiple generated
+expression frames, with a topology-specific mouth-detail close-up highlighting generated inner-mouth geometry and
+collision-aware mouth deformation.
+
+
+
+
+                                                       37
+
