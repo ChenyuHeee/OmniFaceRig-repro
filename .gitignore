@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+~$*.docx
+
+# 论文 PDF 从 arXiv 下载,不提交
+paper/*.pdf
+
+# 数据与产物不提交
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
