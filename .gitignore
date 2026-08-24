@@ -2,8 +2,7 @@
 .DS_Store
 ~$*.docx
 
-# 论文 PDF 从 arXiv 下载,不提交
-paper/*.pdf
+# 论文 PDF 已提交进仓库(26MB,便于接手 agent 无需外网下载)
 
 # 数据与产物不提交
 data/*
