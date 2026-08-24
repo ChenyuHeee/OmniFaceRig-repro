@@ -66,6 +66,36 @@ class _BinaryBuilder:
         self.gltf.accessors.append(acc)
         return len(self.gltf.accessors) - 1
 
+    def add_sparse_accessor(
+        self, full_count: int, values: np.ndarray, indices: np.ndarray,
+        type_: str = "VEC3", component_type: int = _FLOAT,
+    ) -> int:
+        """Sparse accessor: full_count elements, only `indices` carry values.
+
+        Used for morph targets so a 1M-vertex mesh with a small face region
+        stays small (the official demo stores ~1571 face verts per shape).
+        """
+        assert component_type == _FLOAT and type_ == "VEC3"
+        idx_view = self.add_view(np.asarray(indices, dtype=np.uint32),
+                                 _ARRAY_BUFFER)
+        val_view = self.add_view(np.asarray(values, dtype=np.float32),
+                                 _ARRAY_BUFFER)
+        sparse = pygltflib.Sparse(
+            count=len(indices),
+            indices=pygltflib.AccessorSparseIndices(
+                bufferView=idx_view, byteOffset=0, componentType=_UNSIGNED_INT),
+            values=pygltflib.AccessorSparseValues(
+                bufferView=val_view, byteOffset=0),
+        )
+        acc = pygltflib.Accessor(
+            componentType=_FLOAT, count=full_count, type="VEC3", sparse=sparse,
+        )
+        lo, hi = values.min(axis=0), values.max(axis=0)
+        acc.min = np.asarray(lo).tolist()
+        acc.max = np.asarray(hi).tolist()
+        self.gltf.accessors.append(acc)
+        return len(self.gltf.accessors) - 1
+
     def finish(self) -> None:
         self._pad(4)
         blob = b"".join(self.parts)
@@ -81,6 +111,8 @@ def build_gltf(
     skin: dict | None = None,
     animation: dict | None = None,
     name: str = "character",
+    sparse_morphs: bool = True,
+    morph_eps: float = 1e-9,
 ) -> pygltflib.GLTF2:
     """Assemble a GLTF2 object.
 
@@ -90,6 +122,8 @@ def build_gltf(
                 joint_indices: (n,k) uint16, joint_weights: (n,k) float32 }
     animation: optional {"times": (t,), "weights": (t, K) float32} - WEIGHTS
                channel on the mesh node.
+    sparse_morphs: store morph deltas as sparse accessors (only non-zero
+               vertices), like the official FINAL_WORK_DEMO.glb (1571/1M).
     """
     V = np.asarray(V, dtype=np.float32)
     F = np.asarray(F, dtype=np.uint32 if len(V) > 65535 else np.uint16)
@@ -119,10 +153,22 @@ def build_gltf(
 
     # --- morph targets ---
     target_accs: list[int] = []
+    zero_acc: int | None = None
     for name_key in morphs:
         delta = np.asarray(morphs[name_key], dtype=np.float32)
         assert delta.shape == (n, 3), f"morph {name_key}: delta shape {delta.shape} != {(n,3)}"
-        target_accs.append(bb.add_accessor(delta, _ARRAY_BUFFER, "VEC3", _FLOAT))
+        if sparse_morphs:
+            nz = np.any(np.abs(delta) > morph_eps, axis=1)
+            if nz.any():
+                idx = np.where(nz)[0]
+                target_accs.append(bb.add_sparse_accessor(n, delta[idx], idx))
+            else:
+                # empty shape: share one dense zero accessor across shapes
+                if zero_acc is None:
+                    zero_acc = bb.add_accessor(delta, _ARRAY_BUFFER, "VEC3", _FLOAT)
+                target_accs.append(zero_acc)
+        else:
+            target_accs.append(bb.add_accessor(delta, _ARRAY_BUFFER, "VEC3", _FLOAT))
     if target_accs:
         prim.targets = [pygltflib.Attributes(POSITION=a) for a in target_accs]
 
