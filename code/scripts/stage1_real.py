@@ -440,16 +440,27 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
         assert img is not None, f"cannot read image {img_path}"
         img_h, img_w = img.shape[:2]
         lms = detect_landmarks(img)
-        assert lms is not None, "no face detected"
-        kp_idx, kp_pos = keypoints_from_landmarks(V, F, lms, img_h, img_w)
-        log(f"landmarks: {len(lms)} detected -> {len(kp_pos)} 3D keypoints")
-        # anchor names (MediaPipe indices: left eye 33/133, right eye 362/263,
-        # mouth 61/291/0)
-        anchors = {
-            "eye_left": kp_pos[33], "eye_right": kp_pos[263],
-            "mouth_center": kp_pos[13],
-        }
-        region_idx = face_region(V, F, kp_pos)
+        if lms is None:
+            # stylized / non-photoreal faces are invisible to MediaPipe;
+            # fall back to geometric anchors (paper: fine-tuned Sapiens
+            # handles these; our stand-in is head-proportion geometry)
+            log("no face detected in image - falling back to geometric anchors")
+            anchors, head_idx = geometric_anchors(V)
+            anchor_pos = np.array(list(anchors.values()))
+            region_idx = face_region(V, F, anchor_pos, radius_frac=0.10)
+            region_idx = np.intersect1d(region_idx, head_idx)
+            log("geometric anchors: " + str({k: [round(x, 4) for x in v] for k, v in anchors.items()})
+                + f" | face region: {len(region_idx)} verts")
+        else:
+            kp_idx, kp_pos = keypoints_from_landmarks(V, F, lms, img_h, img_w)
+            log(f"landmarks: {len(lms)} detected -> {len(kp_pos)} 3D keypoints")
+            # anchor names (MediaPipe indices: left eye 33/133, right eye 362/263,
+            # mouth 61/291/0)
+            anchors = {
+                "eye_left": kp_pos[33], "eye_right": kp_pos[263],
+                "mouth_center": kp_pos[13],
+            }
+            region_idx = face_region(V, F, kp_pos)
     else:
         anchors, head_idx = geometric_anchors(V)
         # face patch: head verts near the anchor cloud (morphs stay local)
@@ -472,7 +483,10 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
     skeleton["joint_indices"] = jidx
     skeleton["joint_weights"] = jw
 
-    visemes = lip_sync.zh_text_to_visemes(text)
+    has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in text)
+    visemes = (lip_sync.zh_text_to_visemes(text) if has_cjk
+               else lip_sync.en_text_to_visemes(text))
+    log(f"lip-sync: {len(visemes)} visemes ({'zh' if has_cjk else 'en'}): {visemes}")
     dt = 0.18
     times = np.arange(len(visemes) + 1, dtype=float) * dt
     weights = np.zeros((len(visemes) + 1, 52))

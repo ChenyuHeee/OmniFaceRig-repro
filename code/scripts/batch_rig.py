@@ -18,11 +18,19 @@ t0 = time.time()
 for name in sorted(os.listdir(GLBDIR)):
     if not name.endswith(".glb"):
         continue
+    path = os.path.join(GLBDIR, name)
     out = os.path.join(OUTDIR, name.replace(".glb", "_rigged.glb"))
     if os.path.exists(out) and os.path.getsize(out) > 10_000_000:
         print(f"skip {name} (exists)", flush=True)
         continue
-    print(f"== {name}", flush=True)
+    # wait for a concurrent upload to finish: size must be stable
+    s1 = os.path.getsize(path)
+    time.sleep(10)
+    s2 = os.path.getsize(path)
+    if s1 != s2:
+        print(f"skip {name} (still uploading, {s2} bytes)", flush=True)
+        continue
+    print(f"== {name} ({s2} bytes)", flush=True)
     subprocess.run(
         ["python", "-u", "scripts/stage1_real.py", "--glb",
          os.path.join(GLBDIR, name), "--out", out],
