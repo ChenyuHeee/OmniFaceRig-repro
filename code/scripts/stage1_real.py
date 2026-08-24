@@ -184,16 +184,19 @@ def anchor_from_keypoints(keypoints, lms, names):
     return out
 
 
-def build_real_morphs(V, F, region_idx, anchors, ry_scale=1.0):
+def build_real_morphs(V, F, region_idx, anchors, S=None, ry_scale=1.0):
     """52 ARKit morph deltas via region generators anchored at real landmarks.
 
     Reuses the semantic generators from pipeline.synthesize_canonical_shapes
     but centered at the detected eye/mouth anchors of THIS character.
+    S: prebuilt full-mesh smoothing matrix (built once by the caller).
     """
     n = len(V)
     shapes = {name: np.zeros((n, 3)) for name in ARKIT_52}
     if not anchors:
         return shapes
+    if S is None:
+        S = smoothing_matrix(F, n, normalize=True)
     eye_l = anchors.get("eye_left", None)
     eye_r = anchors.get("eye_right", None)
     mouth_c = anchors.get("mouth_center", None)
@@ -252,13 +255,18 @@ def build_real_morphs(V, F, region_idx, anchors, ry_scale=1.0):
         shapes["mouthPucker"] = (shapes["mouthSmileLeft"] + shapes["mouthSmileRight"]) * -0.5
         shapes["mouthFunnel"] = shapes["mouthPucker"] * np.array([0.8, 1.4, 0.4])
 
-    # smooth every shape on the face region (delta mush, full-mesh topology)
+    # smooth every shape on the face region (delta mush, full-mesh topology),
+    # then zero everything outside the region so morphs stay sparse
+    out_region = np.ones(n, dtype=bool)
+    out_region[region_idx] = False
     for k in list(shapes.keys()):
         d = shapes[k]
         if np.abs(d).max() == 0:
             continue
-        smoothed = delta_mush(V, F, V + d, iterations=2, alpha=0.6)
-        shapes[k] = smoothed - V
+        smoothed = delta_mush(V, F, V + d, iterations=2, alpha=0.6, S=S)
+        d = smoothed - V
+        d[out_region] = 0.0
+        shapes[k] = d
     return shapes
 
 
@@ -375,21 +383,19 @@ def build_skeleton(V):
 
 
 def skin_by_proximity(V, skeleton, k=2, sigma_frac=0.10):
-    """Gaussian falloff skin weights over joint positions."""
+    """Gaussian falloff skin weights over joint positions (vectorized)."""
     names = skeleton["joint_names"]
     centers = np.array([T[:3, 3] for T in skeleton["joint_transforms"]])
     H = V[:, 1].max() - V[:, 1].min()
     sigma = sigma_frac * H
-    d = np.linalg.norm(V[:, None, :] - centers[None, :, :], axis=2)  # (n, nj)
-    W = np.exp(-(d / sigma) ** 2)
-    # zero weight for joints far above/below (spine handles torso)
-    jidx = np.zeros((len(V), k), dtype=np.uint16)
-    jw = np.zeros((len(V), k), dtype=np.float32)
-    for i in range(len(V)):
-        top = np.argsort(W[i])[::-1][:k]
-        s = W[i, top].sum()
-        jidx[i] = top
-        jw[i] = W[i, top] / s if s > 0 else 0
+    d2 = ((V[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)  # (n, nj)
+    W = np.exp(-d2 / sigma ** 2)
+    top = np.argpartition(-W, k, axis=1)[:, :k]         # (n, k)
+    wtop = np.take_along_axis(W, top, axis=1)
+    s = wtop.sum(axis=1, keepdims=True)
+    s[s == 0] = 1.0
+    jidx = top.astype(np.uint16)
+    jw = (wtop / s).astype(np.float32)
     return jidx, jw
 
 
@@ -398,8 +404,13 @@ def skin_by_proximity(V, skeleton, k=2, sigma_frac=0.10):
 # ---------------------------------------------------------------------------
 
 def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世界"):
+    import time
+    t0 = time.time()
+    def log(msg):
+        print(f"[{time.time()-t0:6.1f}s] {msg}", flush=True)
+
     V, F, gltf = load_mesh(glb_path)
-    print(f"mesh: {len(V)} verts, {len(F)} faces; bbox H={V[:,1].max()-V[:,1].min():.3f}")
+    log(f"mesh: {len(V)} verts, {len(F)} faces; bbox H={V[:,1].max()-V[:,1].min():.3f}")
 
     if img_path is not None:
         import cv2
@@ -409,7 +420,7 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
         lms = detect_landmarks(img)
         assert lms is not None, "no face detected"
         kp_idx, kp_pos = keypoints_from_landmarks(V, F, lms, img_h, img_w)
-        print(f"landmarks: {len(lms)} detected -> {len(kp_pos)} 3D keypoints")
+        log(f"landmarks: {len(lms)} detected -> {len(kp_pos)} 3D keypoints")
         # anchor names (MediaPipe indices: left eye 33/133, right eye 362/263,
         # mouth 61/291/0)
         anchors = {
@@ -419,12 +430,21 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
         region_idx = face_region(V, F, kp_pos)
     else:
         anchors, head_idx = geometric_anchors(V)
-        region_idx = head_idx
-        print("geometric anchors:", {k: [round(x, 4) for x in v] for k, v in anchors.items()})
+        # face patch: head verts near the anchor cloud (morphs stay local)
+        anchor_pos = np.array(list(anchors.values()))
+        region_idx = face_region(V, F, anchor_pos, radius_frac=0.10)
+        region_idx = np.intersect1d(region_idx, head_idx)
+        log("geometric anchors: " + str({k: [round(x, 4) for x in v] for k, v in anchors.items()})
+            + f" | face region: {len(region_idx)} verts")
 
-    morphs = build_real_morphs(V, F, region_idx, anchors)
-    print(f"morph targets: {sum(1 for k,v in morphs.items() if np.abs(v).max()>0)}/{len(morphs)} non-zero")
+    log("building smoothing matrix...")
+    S = smoothing_matrix(F, len(V), normalize=True)
+    log("building morphs...")
+    morphs = build_real_morphs(V, F, region_idx, anchors, S=S)
+    nz = sum(1 for v in morphs.values() if np.abs(v).max() > 0)
+    log(f"morph targets: {nz}/{len(morphs)} non-zero")
 
+    log("skeleton + skin...")
     skeleton = build_skeleton(V)
     jidx, jw = skin_by_proximity(V, skeleton)
     skeleton["joint_indices"] = jidx
@@ -438,12 +458,14 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
         weights[i] = arkit_vector(lip_sync.viseme_to_arkit(v))
     anim = {"times": times, "weights": weights}
 
+    log("normals...")
     normals = vertex_normals(V, F)
+    log("exporting glb...")
     gltf_out = build_gltf(V, F, morphs, normals=normals, skin=skeleton,
                           animation=anim, name=os.path.basename(glb_path))
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     write_glb(out_path, gltf_out)
-    print("written:", out_path)
+    log("written: " + out_path)
     return {"out": out_path, "verts": len(V), "faces": len(F),
             "morphs": len(morphs), "joints": len(skeleton["joint_names"]),
             "visemes": visemes}
