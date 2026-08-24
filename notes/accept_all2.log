@@ -1,0 +1,115 @@
+### ai3d_01 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0361% of total (1599 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 332, 6.862528243800625e-05), ('mouthStretchRight', 182, 4.6791465138085186e-05), ('eyeLookInLeft', 138, 1.4629569704993628e-05)]
+### ai3d_02 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0545% of total (2869 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 728, 0.00011072892812080681), ('eyeLookInRight', 329, 3.397354521439411e-05), ('eyeLookOutLeft', 281, 3.217965422663838e-05)]
+### ai3d_03 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0536% of total (2398 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 624, 0.00012226193211972713), ('mouthStretchLeft', 451, 6.799663242418319e-05), ('eyeLookInRight', 276, 3.581523196771741e-05)]
+### ai3d_04 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0465% of total (2164 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 606, 9.283707186114043e-05), ('mouthStretchRight', 234, 7.733509119134396e-05), ('eyeLookUpRight', 316, 3.60796730092261e-05)]
+### ai3d_05 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0212% of total (1003 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 180, 3.3332773455185816e-05), ('mouthStretchLeft', 149, 3.016256778209936e-05), ('eyeLookOutRight', 106, 1.564825652167201e-05)]
+### ai3d_06 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0375% of total (831 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 282, 0.00011484973947517574), ('mouthStretchLeft', 189, 5.0101276428904384e-05), ('eyeLookOutRight', 114, 3.368798570591025e-05)]
+### ai3d_07 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0233% of total (1249 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 520, 0.000103876089269761), ('eyeLookUpRight', 200, 3.284206468379125e-05), ('mouthStretchLeft', 38, 2.986423896800261e-05)]
+### ai3d_08 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0451% of total (2037 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 590, 9.434697130927816e-05), ('mouthStretchLeft', 272, 4.6153130824677646e-05), ('eyeLookInRight', 240, 3.88131411455106e-05)]
+### ai3d_09 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0370% of total (2134 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 480, 7.334748806897551e-05), ('mouthStretchRight', 358, 5.9469010011525825e-05), ('eyeLookInRight', 291, 3.046862366318237e-05)]
+### ai3d_10 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0072% of total (265 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 82, 2.142197627108544e-05), ('mouthStretchLeft', 27, 1.2285702723602299e-05), ('eyeLookOutRight', 21, 5.3208432291285135e-06)]
+### ai3d_11 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0573% of total (1685 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 738, 0.00015511311357840896), ('mouthStretchLeft', 230, 6.23198866378516e-05), ('eyeLookOutRight', 188, 3.181003557983786e-05)]
+### ai3d_12 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0156% of total (1067 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 288, 4.298872227082029e-05), ('mouthStretchRight', 194, 3.781300620175898e-05), ('eyeLookUpLeft', 76, 1.0900803317781538e-05)]
+### ai3d_13 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0267% of total (1174 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 201, 3.9092708902899176e-05), ('mouthStretchLeft', 187, 3.3580403396626934e-05), ('eyeLookUpLeft', 143, 2.097450487781316e-05)]
+### ai3d_14 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0451% of total (2496 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 598, 8.753167639952153e-05), ('mouthStretchRight', 373, 6.091804607422091e-05), ('eyeLookUpLeft', 283, 2.9589205951197073e-05)]
+### ai3d_15 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0488% of total (2429 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 694, 0.00011493996134959161), ('mouthStretchLeft', 225, 4.547174467006698e-05), ('eyeLookOutRight', 224, 2.557354309828952e-05)]
+### ai3d_16 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0215% of total (1475 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 485, 7.307549094548449e-05), ('mouthStretchLeft', 193, 3.535791620379314e-05), ('eyeLookOutRight', 106, 9.569742360326927e-06)]
+### ai3d_17 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0033% of total (253 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 82, 2.5811290470301174e-05), ('eyeLookDownRight', 45, 1.009299921861384e-05), ('mouthLowerDownLeft', 22, 5.943167252553394e-06)]
+### ai3d_18 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0285% of total (1663 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 392, 7.158303924370557e-05), ('mouthStretchLeft', 250, 3.537945303833112e-05), ('eyeLookUpLeft', 166, 1.9588063878472894e-05)]
+### ai3d_19 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0410% of total (2043 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 604, 0.0001221291022375226), ('mouthStretchRight', 259, 5.298217001836747e-05), ('eyeLookInRight', 137, 1.7661062884144485e-05)]
+### ai3d_20 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0215% of total (793 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchRight', 315, 9.474627586314455e-05), ('mouthStretchLeft', 82, 3.787298919633031e-05), ('eyeLookUpRight', 125, 1.8985809219884686e-05)]
+### ai3d_21 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0490% of total (3173 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 837, 0.00013198234955780208), ('eyeLookUpLeft', 480, 5.0534625188447535e-05), ('eyeLookUpRight', 497, 4.819371679332107e-05)]
+### ai3d_22 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0414% of total (2881 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 406, 5.5250497098313645e-05), ('eyeLookUpRight', 520, 4.1591258195694536e-05), ('eyeLookUpLeft', 465, 3.581233249860816e-05)]
+### ai3d_23 rc=0
+[INFO] D3b inner-mouth meshes (pending #2): 1 mesh(es); inner-mouth archetype pending ICT-FaceKit
+[PASS] D4 ARKit 52 names: 52 targets
+[PASS] D2 motion skeleton: 53 joints
+[PASS] D3 no broken expressions: flipped area 0.0409% of total (2245 sliver tris; official demo ~1500 slivers for comparison); worst: [('mouthStretchLeft', 509, 9.852161747403443e-05), ('mouthStretchRight', 280, 4.765776975546032e-05), ('eyeLookInRight', 210, 2.2907115635462105e-05)]
