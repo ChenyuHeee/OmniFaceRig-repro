@@ -67,15 +67,33 @@ def load_mesh(glb_path):
 # landmarks (MediaPipe) -> 3D keypoints
 # ---------------------------------------------------------------------------
 
-def detect_landmarks(img_bgr):
+def detect_landmarks(img_bgr, model_path=None):
+    """MediaPipe FaceLandmarker (Tasks API, mediapipe>=1.0) -> 478 landmarks."""
+    if model_path is None:
+        # default: next to the script, or repo root of the workdir
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.path.join(here, "face_landmarker.task"),
+                     os.path.join(here, "..", "..", "face_landmarker.task")):
+            if os.path.exists(cand):
+                model_path = cand
+                break
+    assert model_path and os.path.exists(model_path), f"model not found: {model_path}"
     import mediapipe as mp
-    mp_face = mp.solutions.face_mesh
-    with mp_face.FaceMesh(static_image_mode=True, max_num_faces=1,
-                          refine_landmarks=True, min_detection_confidence=0.3) as fm:
-        res = fm.process(img_bgr)
-        if not res.multi_face_landmarks:
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
+
+    base = mp_python.BaseOptions(model_asset_path=model_path)
+    opts = vision.FaceLandmarkerOptions(
+        base_options=base, num_faces=1, output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
+    with vision.FaceLandmarker.create_from_options(opts) as detector:
+        rgb = img_bgr[:, :, ::-1]
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        res = detector.detect(mp_img)
+        if not res.face_landmarks:
             return None
-        lm = res.multi_face_landmarks[0].landmark
+        lm = res.face_landmarks[0]
         return np.array([[p.x, p.y, p.z] for p in lm])  # 478 x 3, normalized
 
 
@@ -108,6 +126,44 @@ def keypoints_from_landmarks(V, F, lms, img_h, img_w):
 # ---------------------------------------------------------------------------
 # face region + canonical shape generators anchored at real landmarks
 # ---------------------------------------------------------------------------
+
+def geometric_anchors(V):
+    """Face anchors from mesh geometry (humanoid T-pose, frontal +z).
+
+    head cluster = top 18% of body height, central x band; face features by
+    classical proportions (eyes ~50%, mouth ~25% up from the chin); anchor
+    z from the front (+z) surface nearest the (x,y) position.
+    """
+    mn, mx = V.min(axis=0), V.max(axis=0)
+    H, W = mx[1] - mn[1], mx[0] - mn[0]
+    y_top = mx[1]
+    head_mask = (V[:, 1] > y_top - 0.18 * H) & (np.abs(V[:, 0]) < 0.20 * W)
+    idx = np.where(head_mask)[0]
+    if len(idx) < 100:
+        raise RuntimeError("head cluster not found")
+    Vh = V[idx]
+    chin = Vh[:, 1].min()
+    hh = y_top - chin
+    hw = Vh[:, 0].max() - Vh[:, 0].min()
+    zc = Vh[:, 2].mean()
+    front = Vh[:, 2] > zc  # +z assumed frontal
+
+    def anchor(x, y):
+        d2 = (Vh[:, 0] - x) ** 2 + (Vh[:, 1] - y) ** 2
+        d2[~front] = np.inf
+        j = int(np.argmin(d2))
+        return np.array([x, y, Vh[j, 2]])
+
+    cx = Vh[:, 0].mean()
+    eye_y = chin + 0.52 * hh
+    mouth_y = chin + 0.25 * hh
+    eye_dx = 0.30 * hw
+    return {
+        "eye_left": anchor(cx - eye_dx, eye_y),
+        "eye_right": anchor(cx + eye_dx, eye_y),
+        "mouth_center": anchor(cx, mouth_y),
+    }, idx
+
 
 def face_region(V, F, keypoints, radius_frac=0.28):
     """Vertices within radius_frac * head-height of the face keypoint cloud."""
@@ -362,15 +418,9 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
         }
         region_idx = face_region(V, F, kp_pos)
     else:
-        anchors = {}
-        # no image: derive eye/mouth from head geometry (top of mesh)
-        mn, mx = V.min(axis=0), V.max(axis=0)
-        cx = (mn[0] + mx[0]) / 2
-        hy = mn[1] + 0.85 * (mx[1] - mn[1])
-        head = V[(V[:, 1] > hy - 0.15 * (mx[1] - mn[1]))]
-        anchors = {"eye_left": head[head[:, 0].argmin()], "eye_right": head[head[:, 0].argmax()],
-                   "mouth_center": np.array([cx, hy - 0.10 * (mx[1] - mn[1]), (mn[2]+mx[2])/2])}
-        region_idx = face_region(V, F, np.array(list(anchors.values())))
+        anchors, head_idx = geometric_anchors(V)
+        region_idx = head_idx
+        print("geometric anchors:", {k: [round(x, 4) for x in v] for k, v in anchors.items()})
 
     morphs = build_real_morphs(V, F, region_idx, anchors)
     print(f"morph targets: {sum(1 for k,v in morphs.items() if np.abs(v).max()>0)}/{len(morphs)} non-zero")
