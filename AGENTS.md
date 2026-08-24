@@ -9,7 +9,7 @@
 |---|---|---|---|---|---|
 | **rig-ops** | `agent/rig-ops` | `/opt/dsh/DSH/Cam-ChallengeTrack/agents/rig-ops` | #1 批量生产与验收 | 服务器 `~/work/outputs` 验收、`code/scripts/batch_rig.py`、`deliverables_check.py` | active |
 | **inner-mouth** | `agent/inner-mouth` | `/opt/dsh/DSH/Cam-ChallengeTrack/agents/inner-mouth` | #2 口腔内部资产 | `code/omnifacerig_repro/inner_mouth.py`、ICT-FaceKit 获取、口腔几何 | active |
-| **trellis-front** | `agent/trellis-front` | `/opt/dsh/DSH/Cam-ChallengeTrack/agents/trellis-front` | #3 图→mesh 前端 | `code/scripts/trellis_front.py`、部署脚本、权重下载方案 | active |
+| **trellis-front** | `agent/trellis-front` | `/opt/dsh/DSH/Cam-ChallengeTrack/agents/trellis-front` | #3 图→mesh 前端 | `code/scripts/trellis_front.py`、部署脚本、权重下载方案 | done-2026-08-25 (PR #6,权重 blocker 已解除) |
 | **web-ops** | `agent/web-ops` | `/opt/dsh/DSH/Cam-ChallengeTrack/agents/web-ops` | #4 Web 服务运维 | 服务器 webapp、systemd、前端页面 | done-2026-08-25 (PR #5) |
 | 协调者 | `main` | 主仓库 | — | review/merge PR、分配任务、更新本文件 | — |
 
