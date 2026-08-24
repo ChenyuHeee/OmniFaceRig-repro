@@ -4,7 +4,8 @@
 > 任务:上传一张图像 → 输出带**运动骨骼 + 面部表情动画**的角色(glb 文件)。
 
 - 项目页:https://omnifacerig.github.io/
-- 论文:arXiv:2606.08043(PDF 在 `paper/`,本仓库不提交 PDF,从 arXiv 下载)
+- 论文:arXiv:2606.08043(PDF 已入库,在 `paper/`)
+- 官方作业原文:见 `docs/assignment/`(Homework-Deeptech.pdf 第 9 页为交付物出处)
 - 状态:课程 challenge(个人)· 私有仓库
 
 ## 交付物
@@ -19,11 +20,12 @@
 
 ```
 OmniFaceRig-repro/
-├── paper/     # 论文 PDF(本地,gitignore)与精读笔记
-├── notes/     # 调研、实验记录、TODO
-├── code/      # 复现代码
-├── data/      # glb 模型、输入图、测试集(gitignore)
-└── outputs/   # 生成的 glb 与演示视频(gitignore)
+├── paper/           # 论文 PDF + 提取全文 + 精读笔记
+├── notes/           # 进度、需求核实、组件调研(components/)
+├── docs/assignment/ # 官方作业文档与 challenge 要求原文
+├── code/            # 复现代码
+├── data/            # glb 模型、输入图、测试集(gitignore)
+└── outputs/         # 生成的 glb 与演示视频(gitignore)
 ```
 
 ## 时间线
