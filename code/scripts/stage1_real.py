@@ -212,8 +212,8 @@ def build_real_morphs(V, F, region_idx, anchors, S=None, ry_scale=1.0):
         w[~np.isin(np.arange(n), reg)] = 0.0
         return w
 
-    sig_eye = 0.06 * (V[:, 1].max() - V[:, 1].min())
-    sig_mouth = 0.08 * (V[:, 1].max() - V[:, 1].min())
+    sig_eye = 0.09 * (V[:, 1].max() - V[:, 1].min())
+    sig_mouth = 0.12 * (V[:, 1].max() - V[:, 1].min())
 
     # jaw open: lower face (below mouth) moves down
     if mouth_c is not None:
@@ -222,8 +222,8 @@ def build_real_morphs(V, F, region_idx, anchors, S=None, ry_scale=1.0):
         jaw = np.zeros((n, 3))
         f = (mouth_c[1] - V[:, 1]) / (V[:, 1].max() - V[:, 1].min())
         f = np.clip(f, 0, 0.5)
-        jaw[lower] = np.column_stack([np.zeros(lower.sum()), -0.10 * f[lower],
-                                      0.05 * f[lower]])
+        jaw[lower] = np.column_stack([np.zeros(lower.sum()), -0.025 * f[lower],
+                                      0.012 * f[lower]])
         shapes["jawOpen"] = jaw
         shapes["mouthClose"] = -jaw * 0.4
         shapes["jawLeft"] = jaw * np.array([0.6, 0, 0])
@@ -233,40 +233,62 @@ def build_real_morphs(V, F, region_idx, anchors, S=None, ry_scale=1.0):
         if c is None:
             continue
         w = w_around(c, sig_eye)
+        # blink: upper-lid verts close toward the eye center, clamped so the
+        # lid never crosses the eye (contact-aware, paper Table 7)
         blink = np.zeros((n, 3))
-        blink[:, 1] = w * (c[1] - V[:, 1]) * 0.9
+        upper = V[:, 1] > c[1] + 0.10 * sig_eye
+        d = w * upper
+        blink[:, 1] = d * (c[1] - V[:, 1]) * 0.15
         shapes[f"eyeBlink{side}"] = blink
         shapes[f"eyeWide{side}"] = -blink * 0.5
-        shapes[f"eyeLookUp{side}"] = w[:, None] * np.array([0, 0, 0.05])
-        shapes[f"eyeLookDown{side}"] = w[:, None] * np.array([0, 0, -0.05])
+        # gaze: rotate the eye region around the virtual eyeball center
+        # (paper Table 7), which preserves local shape (no folding)
+        def rot(axis, deg):
+            th = np.deg2rad(deg)
+            u = np.asarray(axis, float)
+            u = u / np.linalg.norm(u)
+            K = np.array([[0, -u[2], u[1]], [u[2], 0, -u[0]], [-u[1], u[0], 0]])
+            Rm = np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+            out = np.zeros((n, 3))
+            r = V - c
+            out = (w[:, None] * (r @ Rm.T)) - w[:, None] * r
+            return out
+        shapes[f"eyeLookUp{side}"] = rot([1.0, 0, 0], -6.0)
+        shapes[f"eyeLookDown{side}"] = rot([1.0, 0, 0], 6.0)
+        shapes[f"eyeLookIn{side}"] = rot([0, 0, 1], -5.0 * s)
+        shapes[f"eyeLookOut{side}"] = rot([0, 0, 1], 5.0 * s)
 
     if mouth_c is not None:
         for side, s in (("Left", -1.0), ("Right", 1.0)):
             c = mouth_c + np.array([s * sig_mouth * 1.6, 0, 0])
             w = w_around(c, sig_mouth)
             sm = np.zeros((n, 3))
-            sm[:, 0] = w * s * 0.05
-            sm[:, 1] = w * 0.02
+            sm[:, 0] = w * s * 0.015
+            sm[:, 1] = w * 0.006
             shapes[f"mouthSmile{side}"] = sm
             shapes[f"mouthFrown{side}"] = -sm * np.array([1, 0.6, 0])
             shapes[f"mouthStretch{side}"] = sm * np.array([1.6, 0.3, 0])
-            shapes[f"mouthUpperUp{side}"] = w[:, None] * np.array([0, 0.05, 0])
-            shapes[f"mouthLowerDown{side}"] = w[:, None] * np.array([0, -0.05, 0])
+            shapes[f"mouthUpperUp{side}"] = w[:, None] * np.array([0, 0.015, 0])
+            shapes[f"mouthLowerDown{side}"] = w[:, None] * np.array([0, -0.015, 0])
         shapes["mouthPucker"] = (shapes["mouthSmileLeft"] + shapes["mouthSmileRight"]) * -0.5
         shapes["mouthFunnel"] = shapes["mouthPucker"] * np.array([0.8, 1.4, 0.4])
 
-    # smooth every shape on the face region (delta mush, full-mesh topology),
-    # then zero everything outside the region so morphs stay sparse
-    out_region = np.ones(n, dtype=bool)
-    out_region[region_idx] = False
+    # smooth every shape's delta field directly (not delta-mush: DM re-adds
+    # rest-mesh detail which contaminates the morph). Iterated smoothing of
+    # the delta field blends the face-patch motion into the surrounding mesh
+    # (paper Sec. 3.6.4 "Delta Mush to blend into adjacent non-template
+    # regions"), then taper with a diffused region mask.
+    mask = np.zeros(n)
+    mask[region_idx] = 1.0
+    for _ in range(24):
+        mask = S @ mask
     for k in list(shapes.keys()):
         d = shapes[k]
         if np.abs(d).max() == 0:
             continue
-        smoothed = delta_mush(V, F, V + d, iterations=2, alpha=0.6, S=S)
-        d = smoothed - V
-        d[out_region] = 0.0
-        shapes[k] = d
+        for _ in range(6):
+            d = S @ d
+        shapes[k] = d * mask[:, None]
     return shapes
 
 
