@@ -1,0 +1,23 @@
+[Unit]
+Description=OmniFaceRig-repro Web Preview (Flask + three.js, port 8000)
+Documentation=https://github.com/ChenyuHeee/OmniFaceRig-repro
+After=network.target
+
+[Service]
+Type=simple
+User=linux
+WorkingDirectory=/home/linux/work
+# Conda env python + tools must be first on PATH so both the webapp and the
+# stage1 subprocess resolve `python` to the torch2.4_cuda12.1 environment.
+Environment=PATH=/home/linux/anaconda3/envs/torch2.4_cuda12.1/bin:/home/linux/anaconda3/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/home/linux
+ExecStart=/home/linux/anaconda3/envs/torch2.4_cuda12.1/bin/python -u /home/linux/work/webapp/app.py
+Restart=always
+RestartSec=3
+# Logs go to journald (journalctl -u webapp).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
