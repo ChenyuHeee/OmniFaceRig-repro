@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnifacerig-repro"
+version = "0.1.0"
+description = "OmniFaceRig reproduction pipeline: image -> rigged GLB (face template fitting, ARAP/SDF inner mouth, FACS/ARKit blendshape transfer, lip-sync)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "trimesh>=4.0",
+    "pygltflib>=1.16",
+    "pypinyin>=0.51",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["omnifacerig_repro*"]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
