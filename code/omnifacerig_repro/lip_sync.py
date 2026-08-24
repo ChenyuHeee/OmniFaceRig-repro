@@ -167,6 +167,44 @@ def rhubarb_viseme_to_arkit(viseme: str) -> dict[str, float]:
     return w
 
 
+# Simple English grapheme -> viseme approximation (no phonemizer needed);
+# upgrade path: Rhubarb (phonemes) when audio alignment is available.
+_EN_LETTER_TO_VISEME: dict[str, str] = {
+    "a": "aa", "e": "E", "i": "I", "o": "O", "u": "U", "y": "I",
+    "b": "PP", "p": "PP", "m": "PP",
+    "f": "FF", "v": "FF",
+    "d": "DD", "t": "DD", "n": "nn", "l": "DD",
+    "g": "kk", "k": "kk", "c": "kk", "h": "kk", "x": "kk",
+    "j": "CH", "s": "SS", "z": "SS", "r": "RR", "w": "U",
+}
+_EN_DIGRAPHS = {"th": "DD", "ch": "CH", "sh": "CH", "ph": "FF", "ck": "kk", "qu": "U"}
+
+
+def en_text_to_visemes(text: str) -> list[str]:
+    """English text -> viseme sequence (grapheme approximation).
+
+    Letters/digraphs map to Oculus visemes; consecutive letters of the same
+    viseme collapse to one (approximation until a phonemizer front-end is
+    wired in). Returns [] for empty/non-letter input.
+    """
+    out: list[str] = []
+    i = 0
+    t = text.lower()
+    while i < len(t):
+        if not t[i].isalpha():
+            i += 1
+            continue
+        if i + 1 < len(t) and t[i:i + 2] in _EN_DIGRAPHS:
+            g = _EN_DIGRAPHS[t[i:i + 2]]
+            i += 2
+        else:
+            g = _EN_LETTER_TO_VISEME.get(t[i])
+            i += 1
+        if g and (not out or out[-1] != g):
+            out.append(g)
+    return out
+
+
 def viseme_to_arkit(viseme: str) -> dict[str, float]:
     """Oculus viseme -> ARKit 52 weights dict."""
     return dict(VISEME_TO_ARKIT.get(viseme, {}))
