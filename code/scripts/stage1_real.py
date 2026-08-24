@@ -11,10 +11,13 @@ Runs on the A100 server:
   6. Mixamo-style skeleton (53 joints, exact demo naming) placed by character
      proportions + proximity skin weights
   7. lip-sync animation (Mandarin viseme track -> ARKit weights)
-  8. export rigged glb (52 morphs + skin + animation)
+  8. [optional --inner-mouth] teeth/gums/tongue synthesis + placement
+     (paper Sec. 3.6.2, inner_mouth.py) attached as extra mesh primitives
+  9. export rigged glb (52 morphs + skin + animation [+ inner mouth])
 
 Usage:
   python stage1_real.py --glb ai3d_01.glb [--img image.png] [--out out.glb]
+  python stage1_real.py --glb ai3d_01.glb --inner-mouth [--archetype human]
 """
 
 import argparse
@@ -56,7 +59,7 @@ def load_mesh(glb_path):
     for m in gltf.meshes:
         for p in m.primitives:
             pos = read_acc(p.attributes.POSITION)
-            idx = read_acc(p.indices).ravel()
+            idx = read_acc(p.indices).ravel().astype(np.int64)
             Vs.append(pos)
             Fs.append(offset + idx.reshape(-1, 3))
             offset += len(pos)
@@ -425,7 +428,8 @@ def skin_by_proximity(V, skeleton, k=2, sigma_frac=0.10):
 # main
 # ---------------------------------------------------------------------------
 
-def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世界"):
+def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世界",
+        inner_mouth=False, archetype="human"):
     import time
     t0 = time.time()
     def log(msg):
@@ -460,6 +464,12 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
                 "eye_left": kp_pos[33], "eye_right": kp_pos[263],
                 "mouth_center": kp_pos[13],
             }
+            # mouth corners (MediaPipe: 61/291 left/right, 13/14 top/bottom)
+            # for the inner-mouth cavity; build_real_morphs ignores them.
+            anchors.update({
+                "mouth_left": kp_pos[61], "mouth_right": kp_pos[291],
+                "mouth_top": kp_pos[13], "mouth_bottom": kp_pos[14],
+            })
             region_idx = face_region(V, F, kp_pos)
     else:
         anchors, head_idx = geometric_anchors(V)
@@ -499,12 +509,37 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
     log("exporting glb...")
     gltf_out = build_gltf(V, F, morphs, normals=normals, skin=skeleton,
                           animation=anim, name=os.path.basename(glb_path))
+
+    inner_stats = None
+    if inner_mouth:
+        from omnifacerig_repro.inner_mouth import (build_inner_mouth,
+                                                   compute_part_morphs,
+                                                   attach_to_glb)
+        inner_anchors = dict(anchors)
+        if "mouth_top" in inner_anchors and "mouth_bottom" in inner_anchors:
+            inner_anchors["mouth_center"] = (
+                np.asarray(inner_anchors["mouth_top"])
+                + np.asarray(inner_anchors["mouth_bottom"])) / 2.0
+        log(f"inner mouth: archetype={archetype}")
+        parts = build_inner_mouth(V, F, inner_anchors, archetype=archetype)
+        part_morphs = (compute_part_morphs(parts, morphs,
+                                           inner_anchors.get("mouth_center"), V)
+                       if parts else None)
+        gltf_out = attach_to_glb(gltf_out, parts, part_morphs)
+        inner_stats = {"parts": len(parts),
+                       "verts": sum(len(p[0]) for p in parts),
+                       "names": [n for _, _, n in parts]}
+        log("inner mouth: " + str(inner_stats))
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     write_glb(out_path, gltf_out)
     log("written: " + out_path)
-    return {"out": out_path, "verts": len(V), "faces": len(F),
-            "morphs": len(morphs), "joints": len(skeleton["joint_names"]),
-            "visemes": visemes}
+    stats = {"out": out_path, "verts": len(V), "faces": len(F),
+             "morphs": len(morphs), "joints": len(skeleton["joint_names"]),
+             "visemes": visemes}
+    if inner_stats is not None:
+        stats["inner_mouth"] = inner_stats
+    return stats
 
 
 if __name__ == "__main__":
@@ -513,6 +548,12 @@ if __name__ == "__main__":
     ap.add_argument("--img", default=None)
     ap.add_argument("--out", default="outputs/rigged.glb")
     ap.add_argument("--text", default="你好世界")
+    ap.add_argument("--inner-mouth", action="store_true",
+                    help="synthesize and attach teeth/gums/tongue (paper §3.6.2)")
+    ap.add_argument("--archetype", default="human",
+                    choices=["human", "canine", "monster", "flat"],
+                    help="inner-mouth archetype (paper Table 6)")
     args = ap.parse_args()
-    stats = run(args.glb, args.img, args.out, args.text)
+    stats = run(args.glb, args.img, args.out, args.text,
+                args.inner_mouth, args.archetype)
     print(json.dumps(stats, ensure_ascii=False, indent=1))
