@@ -14,6 +14,9 @@ Modules:
     template_fit  -- Stage 1 rigid (Eq.1) + non-rigid (Eq.2) template registration
     lip_sync      -- Mandarin + English phoneme -> viseme -> ARKit weights
     glb_export    -- pygltflib-based GLB writer (morph targets + skinning)
+    inner_mouth   -- inner-mouth assets (teeth/gums/tongue): ICT-FaceKit or
+                     procedural, archetypes (Table 6), ARAP+RBF placement,
+                     SDF penetration refinement, jaw-follow morphs (Sec. 3.6.2)
     pipeline      -- orchestrator with a CPU-runnable end-to-end demo
 """
 

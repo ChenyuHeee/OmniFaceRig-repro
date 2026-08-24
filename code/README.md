@@ -14,7 +14,11 @@ A100 server.
 | `omnifacerig_repro/template_fit.py` | Stage 1 | rigid alignment (paper Eq. 1, Umeyama) + non-rigid fit (paper Eq. 2: E_corr Huber / E_smooth / E_edge / E_tri / E_flip / E_reg, analytic gradient, L-BFGS-B) |
 | `omnifacerig_repro/lip_sync.py` | deliverable 5 | Mandarin pinyin → viseme (Oculus 15) → ARKit weights; English Rhubarb viseme → ARKit; timing comes from the TTS front-end |
 | `omnifacerig_repro/glb_export.py` | output | pygltflib GLB writer: POSITION/NORMAL/TEXCOORD + 52 morph targets (extras.targetNames) + skin (JOINTS_0/WEIGHTS_0 + IBM) + WEIGHTS animation |
+| `omnifacerig_repro/inner_mouth.py` | Stage 2 | inner-mouth assets (teeth / gums / tongue) — ICT-FaceKit (MIT) sub-meshes or procedural fallback, 4 archetypes (human/canine/monster/flat, paper Table 6), mouth-cavity placement (non-uniform scale), ARAP + RBF arch fit, SDF penetration refinement, jaw-follow morph deltas, `attach_to_glb` (extra primitives, demo layout) |
 | `omnifacerig_repro/pipeline.py` | orchestrator | `run_demo()`: synthetic head → Stage 1 fit → face fusion → 52 ARKit morphs (DT + Delta Mush) → skeleton → viseme animation → `outputs/demo.glb` |
+
+Inner-mouth assets: `vendor/ict_facekit/` (see its `_SOURCE.md` for
+provenance / license).
 
 ## Run
 
