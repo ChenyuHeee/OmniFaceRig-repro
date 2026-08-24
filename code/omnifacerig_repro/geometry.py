@@ -468,6 +468,7 @@ def delta_mush(
     def_V: np.ndarray,
     iterations: int = 4,
     alpha: float = 1.0,
+    S=None,
 ) -> np.ndarray:
     """Detail-preserving smoothing (Delta Mush, canonical formulation).
 
@@ -479,8 +480,11 @@ def delta_mush(
 
     This keeps the transferred-expression detail while blending into adjacent
     non-template regions (paper Sec. 3.6.4).
+    S: optional prebuilt smoothing matrix (smoothing_matrix(F, n)) to avoid
+    rebuilding it per call on large meshes.
     """
-    S = smoothing_matrix(F, len(rest_V), normalize=True)
+    if S is None:
+        S = smoothing_matrix(F, len(rest_V), normalize=True)
     delta = np.asarray(rest_V, dtype=float) - S @ np.asarray(rest_V, dtype=float)
     X = np.asarray(def_V, dtype=float).copy()
     for _ in range(iterations):
