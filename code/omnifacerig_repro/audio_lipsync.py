@@ -209,6 +209,15 @@ def animate_glb(glb_path: str, out_path: str, track: list[tuple[str, float, floa
     anim = viseme_track_to_animation(track)
     n_targets = len(gltf.meshes[0].primitives[0].targets or [])
     assert anim["weights"].shape[1] == n_targets
+    # drop any previous WEIGHTS-only animations (e.g. the pipeline's fixed
+    # rhythm default); keep body animations untouched
+    kept = []
+    for a in (gltf.animations or []):
+        paths = {c.target.path for c in a.channels}
+        if paths == {"weights"} and len(a.channels) == 1:
+            continue
+        kept.append(a)
+    gltf.animations = kept
     # append new accessors to the existing binary blob
     blob = gltf.binary_blob()
     bb = _BinaryBuilder(gltf)
