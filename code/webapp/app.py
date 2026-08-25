@@ -249,7 +249,7 @@ def index():
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-let renderer, scene, camera, controls, model, mixer, clock = new THREE.Clock(), morphNames = [];
+let renderer, scene, camera, controls, model, mixer, clock = new THREE.Clock(), morphNames = [], animClips = [];
 const MAX_MB = 32, ALLOWED = ['image/png','image/jpeg','image/webp','image/gif','image/bmp'];
 function init(){
   const el = document.getElementById('viewer');
@@ -279,10 +279,15 @@ function setMorph(name, v){
 }
 function toggleAnim(on){
   if (!model) return;
-  model.traverse(o=>{ if (o.animations && o.animations.length){
-    if (on){ mixer = new THREE.AnimationMixer(o); mixer.clipAction(o.animations[0]).play(); }
-    else if (mixer){ mixer.stopAllAction(); mixer = null; }
-  }});
+  if (on && animClips.length){
+    // GLTFLoader exposes clips on the gltf result, not on mesh objects
+    mixer = new THREE.AnimationMixer(model);
+    mixer.clipAction(animClips[0]).play();
+    setStatus('播放口型动画:' + animClips[0].name + ' · ' + animClips[0].duration.toFixed(2) + 's');
+  } else if (mixer){
+    mixer.stopAllAction(); mixer = null;
+    setStatus('已停止动画');
+  }
 }
 async function loadGlb(url){
   if (model){ scene.remove(model); model = null; mixer = null; }
@@ -291,12 +296,13 @@ async function loadGlb(url){
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(url);
     model = gltf.scene;
+    animClips = gltf.animations || [];
     scene.add(model);
     model.traverse(o=>{ if (o.morphTargetDictionary){
       morphNames = Object.keys(o.morphTargetDictionary);
       o.morphTargetInfluences = new Array(morphNames.length).fill(0);
     }});
-    setStatus('loaded ' + url + ' · morphs: ' + morphNames.length);
+    setStatus('loaded ' + url + ' · morphs: ' + morphNames.length + ' · anims: ' + animClips.length);
   } catch (e) {
     console.error('[loadGlb] ' + (e && e.stack ? e.stack : e));
     setStatus('加载失败:' + url + ' (' + e + ')', true);
