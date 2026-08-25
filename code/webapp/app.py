@@ -380,6 +380,11 @@ Promise.all([
     return render_template_string(html)
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return "", 204
+
+
 @app.get("/api/health")
 def health():
     outdir_ok = os.path.isdir(OUTDIR) and os.access(OUTDIR, os.W_OK)
