@@ -99,6 +99,8 @@ def _run_job(job_id, payload):
         # before, only the subprocess PATH is pinned to the conda env so the
         # job works identically under systemd (code/scripts/stage1_real.py is
         # not modified).
+        env = dict(os.environ)
+        env["PATH"] = CONDA_BIN + os.pathsep + env.get("PATH", "")
         cmd = ["python", "-u", "scripts/stage1_real.py",
                "--glb", glb, "--out", out_path, "--text", text]
         if img:
@@ -125,8 +127,6 @@ def _run_job(job_id, payload):
                        "--glb", mesh_path, "--out", out_path, "--text", text]
             else:
                 cmd += ["--img", img_path]
-        env = dict(os.environ)
-        env["PATH"] = CONDA_BIN + os.pathsep + env.get("PATH", "")
         proc = subprocess.Popen(
             cmd, cwd=CODE,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True,
