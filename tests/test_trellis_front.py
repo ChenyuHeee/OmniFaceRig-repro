@@ -42,7 +42,7 @@ def test_mock_produces_glb_consumable_by_stage1(tmp_path):
 
     # input contract of stage1_real.py: first primitive POSITION + indices
     from stage1_real import load_mesh
-    V, F, gltf = load_mesh(out)
+    V, F, _, gltf = load_mesh(out)
     assert len(V) > 100 and len(F) > 100
     assert V.shape[1] == 3 and F.shape[1] == 3
     assert np.isfinite(V).all()

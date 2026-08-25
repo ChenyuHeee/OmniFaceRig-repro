@@ -30,7 +30,8 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from omnifacerig_repro.arkit52 import ARKIT_52, arkit_vector
 from omnifacerig_repro.geometry import delta_mush, smoothing_matrix, vertex_normals
-from omnifacerig_repro.glb_export import build_gltf, write_glb, load_glb
+from omnifacerig_repro.glb_export import (build_gltf, write_glb, load_glb,
+                            attach_materials)
 from omnifacerig_repro import lip_sync
 from omnifacerig_repro.pipeline import synthesize_canonical_shapes  # reuse generators
 
@@ -56,14 +57,17 @@ def load_mesh(glb_path):
                             count=acc.count * n, offset=bv.byteOffset)
         return arr.reshape(-1, n).copy()
 
+    uv = None
     for m in gltf.meshes:
         for p in m.primitives:
             pos = read_acc(p.attributes.POSITION)
             idx = read_acc(p.indices).ravel().astype(np.int64)
             Vs.append(pos)
             Fs.append(offset + idx.reshape(-1, 3))
+            if uv is None and getattr(p.attributes, "TEXCOORD_0", None) is not None:
+                uv = read_acc(p.attributes.TEXCOORD_0)
             offset += len(pos)
-    return np.vstack(Vs), np.vstack(Fs), gltf
+    return np.vstack(Vs), np.vstack(Fs), uv, gltf
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +439,7 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
     def log(msg):
         print(f"[{time.time()-t0:6.1f}s] {msg}", flush=True)
 
-    V, F, gltf = load_mesh(glb_path)
+    V, F, uv, gltf = load_mesh(glb_path)
     log(f"mesh: {len(V)} verts, {len(F)} faces; bbox H={V[:,1].max()-V[:,1].min():.3f}")
 
     if img_path is not None:
@@ -507,8 +511,10 @@ def run(glb_path, img_path=None, out_path="outputs/rigged.glb", text="你好世�
     log("normals...")
     normals = vertex_normals(V, F)
     log("exporting glb...")
-    gltf_out = build_gltf(V, F, morphs, normals=normals, skin=skeleton,
-                          animation=anim, name=os.path.basename(glb_path))
+    gltf_out = build_gltf(V, F, morphs, normals=normals, texcoords=uv,
+                          skin=skeleton, animation=anim,
+                          name=os.path.basename(glb_path))
+    attach_materials(gltf_out, glb_path)
 
     inner_stats = None
     if inner_mouth:

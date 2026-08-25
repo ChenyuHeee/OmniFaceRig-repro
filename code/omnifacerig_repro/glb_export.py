@@ -108,6 +108,7 @@ def build_gltf(
     F: np.ndarray,
     morphs: dict[str, np.ndarray],
     normals: np.ndarray | None = None,
+    texcoords: np.ndarray | None = None,
     skin: dict | None = None,
     animation: dict | None = None,
     name: str = "character",
@@ -130,6 +131,8 @@ def build_gltf(
     n = len(V)
     if normals is not None:
         normals = np.asarray(normals, dtype=np.float32)
+    if texcoords is not None:
+        texcoords = np.asarray(texcoords, dtype=np.float32)
 
     gltf = pygltflib.GLTF2()
     gltf.asset = pygltflib.Asset(version="2.0", generator="omnifacerig-repro")
@@ -149,6 +152,8 @@ def build_gltf(
     attrs = pygltflib.Attributes(POSITION=pos_acc)
     if normals is not None:
         attrs.NORMAL = nrm_acc
+    if texcoords is not None:
+        attrs.TEXCOORD_0 = bb.add_accessor(texcoords, _ARRAY_BUFFER, "VEC2", _FLOAT)
     prim = pygltflib.Primitive(attributes=attrs, indices=idx_acc)
 
     # --- morph targets ---
@@ -255,3 +260,42 @@ def load_glb(path: str) -> pygltflib.GLTF2:
     """Read back a .glb (for verification)."""
     with open(path, "rb") as fh:
         return pygltflib.GLTF2().load_from_bytes(fh.read())
+
+
+def attach_materials(gltf: pygltflib.GLTF2, src_glb_path: str) -> pygltflib.GLTF2:
+    """Copy materials/textures/images from a source glb into `gltf`.
+
+    The image binary payloads are appended to the output binary blob and the
+    first primitive gets the first source material. Returns the gltf (mutated).
+    """
+    import copy
+    from omnifacerig_repro.glb_export import _BinaryBuilder
+
+    with open(src_glb_path, "rb") as fh:
+        src = pygltflib.GLTF2().load_from_bytes(fh.read())
+    src_blob = src.binary_blob()
+    if not (src.materials or src.images):
+        return gltf
+
+    gltf.images = copy.deepcopy(src.images or [])
+    gltf.samplers = copy.deepcopy(src.samplers or [])
+    gltf.textures = copy.deepcopy(src.textures or [])
+    gltf.materials = copy.deepcopy(src.materials or [])
+
+    # append image payloads to the output blob
+    blob = gltf.binary_blob()
+    bb = _BinaryBuilder(gltf)
+    bb.parts = [blob]
+    bb.offset = len(blob)
+    for i, img in enumerate(gltf.images):
+        if img.bufferView is not None and src.bufferViews:
+            bv = src.bufferViews[img.bufferView]
+            data = src_blob[bv.byteOffset:bv.byteOffset + bv.byteLength]
+            new_view = bb.add_view(np.frombuffer(data, dtype=np.uint8), 0)
+            gltf.images[i] = pygltflib.Image(bufferView=new_view, mimeType=img.mimeType,
+                                             name=img.name, uri=None)
+    bb.finish()
+
+    if gltf.meshes and gltf.meshes[0].primitives:
+        gltf.meshes[0].primitives[0].material = 0
+    return gltf
