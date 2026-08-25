@@ -53,6 +53,9 @@ class _BinaryBuilder:
 
     def add_accessor(self, arr: np.ndarray, target: int, type_: str,
                      component_type: int, with_minmax: bool = True) -> int:
+        if component_type == _FLOAT:
+            # glTF FLOAT is 32-bit; coerce (weights can arrive as float64)
+            arr = np.asarray(arr, dtype=np.float32)
         view = self.add_view(arr, target)
         acc = pygltflib.Accessor(
             bufferView=view, byteOffset=0, componentType=component_type,
