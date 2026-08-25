@@ -86,8 +86,10 @@ def _run_job(job_id, payload):
     try:
         JOBS[job_id]["status"] = "running"
         img = payload.get("image")
+        audio = payload.get("audio")
         character = payload.get("character", "ai3d_01.glb")
         text = payload.get("text", "你好世界")
+        lang = payload.get("lang", "zh" if any("\u4e00" <= c <= "\u9fff" for c in text) else "en")
         glb = os.path.join(GLBDIR, character)
         if not os.path.exists(glb):
             raise RuntimeError(f"character not found: {character}")
@@ -117,6 +119,31 @@ def _run_job(job_id, payload):
         rc = proc.wait()
         if rc != 0:
             raise RuntimeError("\n".join(log[-15:]))
+        # REAL audio lip-sync: audio+transcript -> whisper alignment, or
+        # text only -> piper TTS phoneme timestamps; append WEIGHTS animation
+        if audio is not None or text:
+            audio_path = None
+            if audio is not None:
+                audio_path = os.path.join(OUTDIR, f"{job_id}.wav")
+                with open(audio_path, "wb") as fh:
+                    fh.write(audio)
+            acmd = ["python", "-u", "scripts/animate_audio.py",
+                    "--glb", out_path, "--out", out_path,
+                    "--text", text, "--lang", lang]
+            if audio_path:
+                acmd += ["--audio", audio_path]
+            aproc = subprocess.Popen(
+                acmd, cwd=CODE,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True,
+            )
+            alog = []
+            for line in aproc.stdout:
+                alog.append(line.rstrip())
+                JOBS[job_id]["log"] = alog[-4:]
+            arc = aproc.wait()
+            if arc != 0:
+                raise RuntimeError("audio lip-sync failed:\n" + "\n".join(alog[-15:]))
+            log.append("audio: " + (alog[-1] if alog else ""))
         JOBS[job_id]["status"] = "done"
         JOBS[job_id]["result"] = {"url": f"/output/{out_name}", "size": os.path.getsize(out_path)}
     except Exception as exc:  # noqa
@@ -358,10 +385,18 @@ def rig():
         detected = _sniff_image(img_bytes[:16])
         if detected is None:
             return _api_error("图片格式不支持,请上传 PNG/JPG/WebP/GIF/BMP")
+    audio = request.files.get("audio")
+    audio_bytes = None
+    if audio and audio.filename:
+        audio_bytes = audio.read()
+        if len(audio_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
+            return _api_error(f"音频超过 {MAX_UPLOAD_MB}MB 上限")
     job = str(uuid.uuid4())[:8]
     payload = {"character": character, "text": text}
     if img_bytes is not None:
         payload["image"] = img_bytes
+    if audio_bytes is not None:
+        payload["audio"] = audio_bytes
     with LOCK:
         JOBS[job] = {"status": "queued", "log": [], "created": time.time()}
     threading.Thread(target=_run_job, args=(job, payload), daemon=True).start()
