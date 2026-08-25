@@ -298,7 +298,9 @@ async function loadGlb(url){
     }});
     setStatus('loaded ' + url + ' · morphs: ' + morphNames.length);
   } catch (e) {
+    console.error('[loadGlb] ' + (e && e.stack ? e.stack : e));
     setStatus('加载失败:' + url + ' (' + e + ')', true);
+    setTimeout(() => { throw e; }, 0);
   }
 }
 function loadRigged(){

@@ -191,3 +191,49 @@ def test_procedural_fallback(head, monkeypatch):
     for pV, pF, _name in parts:
         assert pF.min() >= 0 and pF.max() < len(pV)
         assert len(pV) > 40
+
+
+def test_skinned_attach_adds_joints_weights(head, monkeypatch, tmp_path):
+    """Inner-mouth prims of a skinned mesh must carry JOINTS_0/WEIGHTS_0
+    (three.js SkinnedMesh.normalizeSkinWeights crashes without them)."""
+    monkeypatch.setattr(im, "load_ict_facekit", lambda: None)
+    V, F = head["V"].astype(np.float32), head["F"]
+    n = len(V)
+    joints = ["mixamorig:Hips", "mixamorig:Spine", "mixamorig:Neck",
+              "mixamorig:Head"]
+    skin = {
+        "joint_names": joints,
+        "joint_transforms": [np.eye(4) for _ in joints],
+        "joint_indices": np.zeros((n, 1), dtype=np.uint16),
+        "joint_weights": np.ones((n, 1), dtype=np.float32),
+    }
+    gltf = build_gltf(V, F, {}, normals=None, skin=skin)
+    parts = im.build_inner_mouth(V, F, head["anchors"], archetype="human")
+    assert parts
+    gltf = im.attach_to_glb(gltf, parts)
+    out = str(tmp_path / "skinned_mouth.glb")
+    write_glb(out, gltf)
+    loaded = load_glb(out)
+    blob = loaded.binary_blob()
+    skin0 = loaded.skins[0]
+    head_idx = next(i for i, jn in enumerate(skin0.joints)
+                    if loaded.nodes[jn].name == "mixamorig:Head")
+    NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+    DT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16,
+          5125: np.uint32, 5126: np.float32}
+
+    def read_acc(i):
+        acc = loaded.accessors[i]
+        bv = loaded.bufferViews[acc.bufferView]
+        return np.frombuffer(blob, DT[acc.componentType],
+                             count=acc.count * NCOMP[acc.type],
+                             offset=bv.byteOffset).reshape(-1, NCOMP[acc.type]).copy()
+
+    for prim in loaded.meshes[0].primitives[1:]:
+        assert prim.attributes.JOINTS_0 is not None
+        assert prim.attributes.WEIGHTS_0 is not None
+        ji = read_acc(prim.attributes.JOINTS_0)
+        jw = read_acc(prim.attributes.WEIGHTS_0)
+        assert (ji[:, 0] == head_idx).all()
+        assert np.allclose(jw[:, 0], 1.0)
+        assert np.allclose(jw[:, 1:], 0.0)

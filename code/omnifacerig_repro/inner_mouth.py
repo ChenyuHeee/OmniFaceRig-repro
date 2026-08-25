@@ -966,6 +966,26 @@ def attach_to_glb(gltf, parts: list, part_morphs: dict | None = None):
                                5123 if pF.dtype == np.uint16 else 5125,
                                with_minmax=False, target=_BinaryAppender._ELEMENT_ARRAY_BUFFER)
         attrs = pygltflib.Attributes(POSITION=pos, NORMAL=nrm_acc)
+        # A skinned mesh must carry JOINTS_0/WEIGHTS_0 on every primitive:
+        # three.js GLTFLoader turns each primitive of a skinned mesh into a
+        # SkinnedMesh and calls normalizeSkinWeights(), which throws
+        # "Cannot read properties of undefined (reading 'count')" when
+        # geometry.attributes.skinWeight is missing.  Rigid-bind the inner
+        # mouth to the head joint (weight 1.0) so it follows the head.
+        if gltf.skins:
+            skin = gltf.skins[0]
+            head_idx = 0
+            for _i, _jn in enumerate(skin.joints):
+                if gltf.nodes[_jn].name == "mixamorig:Head":
+                    head_idx = _i
+                    break
+            n = len(pV)
+            jidx = np.zeros((n, 4), dtype=np.uint16)
+            jidx[:, 0] = head_idx
+            jw = np.zeros((n, 4), dtype=np.float32)
+            jw[:, 0] = 1.0
+            attrs.JOINTS_0 = app.add_accessor(jidx, "VEC4", 5123, with_minmax=False)
+            attrs.WEIGHTS_0 = app.add_accessor(jw, "VEC4", 5126)
         targets = []
         if n_targets:
             pm = (part_morphs or {}).get(name, {})
