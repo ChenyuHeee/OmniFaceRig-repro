@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from omnifacerig_repro.audio_lipsync import (
-    _piper_phoneme_to_viseme, piper_viseme_track, whisper_viseme_track,
+    _piper_phoneme_to_viseme, piper_tts_wav, whisper_viseme_track,
     viseme_track_to_animation,
 )
 from omnifacerig_repro.arkit52 import ARKIT_52

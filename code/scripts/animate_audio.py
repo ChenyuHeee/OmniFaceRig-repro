@@ -34,6 +34,7 @@ def main():
     args = ap.parse_args()
 
     if args.audio:
+        # REAL audio + transcript -> faster-whisper word timestamps
         model = os.path.join(args.models, "faster-whisper-base.bin")
         if not os.path.exists(model):
             raise SystemExit(f"whisper model missing: {model}")
@@ -41,12 +42,18 @@ def main():
             args.audio, args.text, lang=args.lang, model_path=model)
         src = f"whisper({os.path.basename(args.audio)})"
     else:
+        # text -> piper TTS (real speech) -> whisper alignment (unified)
         piper_model = (os.path.join(args.models, "zh_CN-huayan-medium.onnx")
                        if args.lang == "zh" else
                        os.path.join(args.models, "en_US-lessac-medium.onnx"))
         if not os.path.exists(piper_model):
             raise SystemExit(f"piper model missing: {piper_model}")
-        track = audio_lipsync.piper_viseme_track(args.text, piper_model, lang=args.lang)
+        wav = os.path.join(os.path.dirname(args.out), os.path.basename(args.out) + ".tts.wav")
+        audio_lipsync.piper_tts_wav(args.text, piper_model, wav)
+        model = os.path.join(args.models, "faster-whisper-base.bin")
+        track = audio_lipsync.whisper_viseme_track(
+            wav, args.text, lang=args.lang, model_path=model)
+        os.unlink(wav)
         src = f"piper-tts({args.lang})"
 
     if not track:

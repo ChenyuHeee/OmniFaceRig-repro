@@ -60,38 +60,23 @@ def _piper_phoneme_to_viseme(ph: str) -> str | None:
     return None
 
 
-def piper_viseme_track(
-    text: str, model_path: str, lang: str = "en",
-) -> list[tuple[str, float, float]]:
-    """piper TTS (real phoneme timestamps) -> [(viseme, start, end)]."""
+def piper_tts_wav(text: str, model_path: str, out_wav: str) -> str:
+    """piper TTS: synthesize real speech to a wav file (no alignment needed;
+    timestamps come from faster-whisper on the synthesized audio)."""
+    import wave
     from piper import PiperVoice  # type: ignore
 
     voice = PiperVoice.load(model_path)
-    events: list = []
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-        wav_path = tf.name
-    try:
-        voice.synthesize(text, wav_path, phoneme_events=True)
-    finally:
-        pass
-    # phoneme events are emitted via the callback; PiperVoice.synthesize
-    # stores them on the voice object (sentence_events / phoneme events)
-    events = getattr(voice, "phoneme_events", None) or getattr(voice, "events", [])
-    os.unlink(wav_path)
-    track: list[tuple[str, float, float]] = []
-    for ev in events:
-        ph, start, end = ev[0], float(ev[1]), float(ev[2])
-        if lang == "zh":
-            syl = ph.translate(_PINYIN_TONE).strip()
-            # piper cmn emits syllables; map through the pinyin table
-            for initial, final in _split_pinyin(syl):
-                for v in lip_sync.pinyin_syllable_to_visemes(initial, final):
-                    track.append((v, start, end))
-        else:
-            v = _piper_phoneme_to_viseme(ph)
-            if v:
-                track.append((v, start, end))
-    return track
+    with wave.open(out_wav, "wb") as wf:
+        first = True
+        for chunk in voice.synthesize(text):
+            if first:
+                wf.setnchannels(chunk.sample_channels)
+                wf.setsampwidth(chunk.sample_width)
+                wf.setframerate(chunk.sample_rate)
+                first = False
+            wf.writeframes(chunk.audio_int16_bytes)
+    return out_wav
 
 
 def _split_pinyin(syl: str) -> list[tuple[str, str]]:
@@ -111,16 +96,19 @@ def whisper_viseme_track(
 ) -> list[tuple[str, float, float]]:
     """Transcribe-aligned word timestamps (faster-whisper) -> viseme track.
 
-    text: the known transcript (words matched to segments); words not found
-    in the transcript are skipped.
+    Alignment uses whisper's own word timestamps (the real audio signal).
+    The provided text is used as a sanity check and fallback word source:
+    for en, transcribed words are greedily matched against the expected
+    transcript; for zh (no spaces), whisper words are used as-is.
     """
+    import re
     from faster_whisper import WhisperModel  # type: ignore
 
     if model_path is None:
         model_path = os.path.join(
             os.path.dirname(__file__), "..", "models", "faster-whisper-base.bin")
     model = WhisperModel(model_path, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(
+    segments, info = model.transcribe(
         audio_path, language=lang, word_timestamps=True, vad_filter=True)
 
     # collect words with timestamps
@@ -128,31 +116,48 @@ def whisper_viseme_track(
     for seg in segments:
         for w in (seg.words or []):
             words.append((w.word.strip(), float(w.start), float(w.end)))
+    if not words:
+        # fallback: one segment spanning the whole audio
+        words = [(text, 0.0, float(getattr(info, "duration", 2.0)))]
 
-    # tokenize the expected transcript into words
-    import re
-    expect = [w.lower() for w in re.findall(r"[\w\u4e00-\u9fff]+", text.lower())]
-    # match greedily: consume expected words in order against transcribed words
     track: list[tuple[str, float, float]] = []
+    if lang == "zh":
+        # Chinese: whisper emits word fragments; use them directly, merging
+        # into syllable-length chunks for pinyin mapping
+        for tw, ts, te in words:
+            chars = "".join(c for c in tw if "\u4e00" <= c <= "\u9fff")
+            if not chars:
+                continue
+            visemes = lip_sync.zh_text_to_visemes(chars)
+            if not visemes:
+                continue
+            seg = (te - ts) / len(visemes)
+            for k, v in enumerate(visemes):
+                track.append((v, ts + k * seg, ts + (k + 1) * seg))
+        return track
+
+    # English: greedy match against the expected transcript
+    expect = [w.lower() for w in re.findall(r"[\w']+", text.lower())]
     ei = 0
     for tw, ts, te in words:
         if ei >= len(expect):
             break
-        if tw.lower() == expect[ei]:
-            w = expect[ei]
-            ei += 1
-        elif tw.lower().startswith(expect[ei]) or expect[ei].startswith(tw.lower()):
+        if tw.lower() == expect[ei] or tw.lower().startswith(expect[ei]) \
+                or expect[ei].startswith(tw.lower()):
             w = expect[ei]
             ei += 1
         else:
             continue
-        visemes = (lip_sync.en_text_to_visemes(w) if lang == "en"
-                   else lip_sync.zh_text_to_visemes(w))
+        visemes = lip_sync.en_text_to_visemes(w)
         if not visemes:
             continue
         seg = (te - ts) / len(visemes)
         for k, v in enumerate(visemes):
             track.append((v, ts + k * seg, ts + (k + 1) * seg))
+    if ei < len(expect) * 0.5:
+        import warnings
+        warnings.warn(f"low transcript match ({ei}/{len(expect)} words); "
+                      "check audio/transcript")
     return track
 
 
@@ -196,7 +201,8 @@ def viseme_track_to_animation(
 def animate_glb(glb_path: str, out_path: str, track: list[tuple[str, float, float]]):
     """Add a WEIGHTS animation (from a viseme track) to an existing rigged glb."""
     import pygltflib
-    from .glb_export import load_glb, _BinaryBuilder  # type: ignore
+    from .glb_export import (load_glb, _BinaryBuilder,  # type: ignore
+                            _ARRAY_BUFFER, _FLOAT)
 
     with open(glb_path, "rb") as fh:
         gltf = load_glb(glb_path)
