@@ -105,7 +105,26 @@ def _run_job(job_id, payload):
             img_path = os.path.join(OUTDIR, f"{job_id}.img")
             with open(img_path, "wb") as fh:
                 fh.write(img)
-            cmd += ["--img", img_path]
+            if payload.get("image_to_mesh"):
+                # FULL deliverable-2 loop: image -> TRELLIS mesh -> rigged glb
+                mesh_path = os.path.join(OUTDIR, f"{job_id}_mesh.glb")
+                tcmd = ["python", "-u", "scripts/trellis_front.py",
+                        "--image", img_path, "--out", mesh_path]
+                tproc = subprocess.Popen(
+                    tcmd, cwd=CODE,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True)
+                for line in tproc.stdout:
+                    log.append(line.rstrip())
+                    JOBS[job_id]["log"] = log[-8:]
+                trc = tproc.wait()
+                if trc != 0:
+                    raise RuntimeError("TRELLIS image-to-mesh failed:\n"
+                                       + "\n".join(log[-12:]))
+                log.append("image-to-mesh OK: " + mesh_path)
+                cmd = ["python", "-u", "scripts/stage1_real.py",
+                       "--glb", mesh_path, "--out", out_path, "--text", text]
+            else:
+                cmd += ["--img", img_path]
         env = dict(os.environ)
         env["PATH"] = CONDA_BIN + os.pathsep + env.get("PATH", "")
         proc = subprocess.Popen(
@@ -392,7 +411,8 @@ def rig():
         if len(audio_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
             return _api_error(f"音频超过 {MAX_UPLOAD_MB}MB 上限")
     job = str(uuid.uuid4())[:8]
-    payload = {"character": character, "text": text}
+    payload = {"character": character, "text": text,
+               "image_to_mesh": request.form.get("image_to_mesh") == "1"}
     if img_bytes is not None:
         payload["image"] = img_bytes
     if audio_bytes is not None:
