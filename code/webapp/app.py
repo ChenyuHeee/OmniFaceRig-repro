@@ -101,6 +101,15 @@ def _run_job(job_id, payload):
         # not modified).
         env = dict(os.environ)
         env["PATH"] = CONDA_BIN + os.pathsep + env.get("PATH", "")
+        # TRELLIS runtime env (image-to-mesh mode)
+        models_dir = os.path.join(WORK, "models")
+        env.setdefault("TRELLIS_MODEL_PATH", os.path.join(models_dir, "TRELLIS-image-large"))
+        dino = os.path.expanduser("~/.cache/torch/hub/checkpoints/dinov2_vitl14_reg_pretrain.pth")
+        env.setdefault("TRELLIS_DINOV2_PTH", dino)
+        env.setdefault("ATTN_BACKEND", "sdpa")
+        trellis_src = os.path.join(WORK, "src", "TRELLIS-main")
+        if os.path.exists(trellis_src):
+            env["PYTHONPATH"] = trellis_src + os.pathsep + env.get("PYTHONPATH", "")
         log = []
         cmd = ["python", "-u", "scripts/stage1_real.py",
                "--glb", glb, "--out", out_path, "--text", text]
