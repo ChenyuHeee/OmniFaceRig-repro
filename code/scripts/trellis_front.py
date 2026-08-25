@@ -254,13 +254,20 @@ def _patch_torch_hub_dinov2(pth_path: str) -> None:
     use a local .pth instead of the blocked dl.fbaipublicfiles.com URL."""
     import torch.hub as hub
 
-    if os.path.exists(_dinov2_hub_cache_path()):
-        return  # cache pre-seeded; torch.hub already skips the network
     orig = hub.load
 
     def patched(repo_or_dir, model, *args, **kwargs):
         if (repo_or_dir == "facebookresearch/dinov2"
                 and model == "dinov2_vitl14_reg"):
+            # use the pre-seeded local hub checkout so torch.hub never
+            # touches the network (github.com is unreachable here); the
+            # local .pth is injected via the weights argument
+            local_repo = os.path.join(os.path.expanduser("~"), ".cache",
+                                      "torch", "hub",
+                                      "facebookresearch_dinov2_main")
+            if os.path.exists(local_repo):
+                repo_or_dir = local_repo
+                kwargs.setdefault("source", "local")
             kwargs.setdefault("pretrained", True)
             kwargs["weights"] = pth_path  # str path -> local file:// URL
         return orig(repo_or_dir, model, *args, **kwargs)

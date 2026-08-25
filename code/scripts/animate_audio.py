@@ -22,6 +22,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from omnifacerig_repro import audio_lipsync
 
 
+def _whisper_model(models_dir):
+    d = os.path.join(models_dir, "faster-whisper-base")
+    f = os.path.join(models_dir, "faster-whisper-base.bin")
+    return d if os.path.isdir(d) else f
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--glb", required=True, help="input rigged glb (52 morphs)")
@@ -35,9 +41,7 @@ def main():
 
     if args.audio:
         # REAL audio + transcript -> faster-whisper word timestamps
-        model = os.path.join(args.models, "faster-whisper-base.bin")
-        if not os.path.exists(model):
-            raise SystemExit(f"whisper model missing: {model}")
+        model = _whisper_model(args.models)
         track = audio_lipsync.whisper_viseme_track(
             args.audio, args.text, lang=args.lang, model_path=model)
         src = f"whisper({os.path.basename(args.audio)})"
@@ -50,9 +54,8 @@ def main():
             raise SystemExit(f"piper model missing: {piper_model}")
         wav = os.path.join(os.path.dirname(args.out), os.path.basename(args.out) + ".tts.wav")
         audio_lipsync.piper_tts_wav(args.text, piper_model, wav)
-        model = os.path.join(args.models, "faster-whisper-base.bin")
         track = audio_lipsync.whisper_viseme_track(
-            wav, args.text, lang=args.lang, model_path=model)
+            wav, args.text, lang=args.lang, model_path=_whisper_model(args.models))
         os.unlink(wav)
         src = f"piper-tts({args.lang})"
 
