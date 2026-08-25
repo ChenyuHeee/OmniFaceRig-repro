@@ -1,0 +1,65 @@
+"""Animate a rigged glb with REAL audio-driven lip-sync.
+
+Usage:
+  # text -> piper TTS (real phoneme timestamps)
+  python animate_audio.py --glb in.glb --out out.glb --text "Hello world" --lang en
+
+  # real audio + transcript -> faster-whisper word timestamps
+  python animate_audio.py --glb in.glb --out out.glb --audio speech.wav \
+      --text "Hello world" --lang en
+
+The WEIGHTS animation (52 ARKit channels, real seconds) is appended to the
+existing rigged glb; original skeleton/body animation is untouched.
+"""
+
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from omnifacerig_repro import audio_lipsync
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--glb", required=True, help="input rigged glb (52 morphs)")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--text", required=True, help="transcript / TTS text")
+    ap.add_argument("--audio", default=None, help="real audio for whisper alignment")
+    ap.add_argument("--lang", default="en", choices=["en", "zh"])
+    ap.add_argument("--models", default=os.path.expanduser("~/work/models"),
+                    help="dir with piper models + faster-whisper bins")
+    args = ap.parse_args()
+
+    if args.audio:
+        model = os.path.join(args.models, "faster-whisper-base.bin")
+        if not os.path.exists(model):
+            raise SystemExit(f"whisper model missing: {model}")
+        track = audio_lipsync.whisper_viseme_track(
+            args.audio, args.text, lang=args.lang, model_path=model)
+        src = f"whisper({os.path.basename(args.audio)})"
+    else:
+        piper_model = (os.path.join(args.models, "zh_CN-huayan-medium.onnx")
+                       if args.lang == "zh" else
+                       os.path.join(args.models, "en_US-lessac-medium.onnx"))
+        if not os.path.exists(piper_model):
+            raise SystemExit(f"piper model missing: {piper_model}")
+        track = audio_lipsync.piper_viseme_track(args.text, piper_model, lang=args.lang)
+        src = f"piper-tts({args.lang})"
+
+    if not track:
+        raise SystemExit("empty viseme track - check audio/transcript match")
+
+    audio_lipsync.animate_glb(args.glb, args.out, track)
+    anim = audio_lipsync.viseme_track_to_animation(track)
+    print(json.dumps({
+        "out": args.out, "source": src, "visemes": len(track),
+        "duration": round(float(anim["times"][-1]), 2),
+        "first": track[:4],
+    }, ensure_ascii=False, indent=1))
+
+
+if __name__ == "__main__":
+    main()
