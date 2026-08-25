@@ -335,6 +335,13 @@ async function start(){
   }, 1500);
 }
 init();
+// module-scoped functions are invisible to inline onclick/oninput
+// handlers (they resolve in global scope) — expose them explicitly
+window.loadRigged = loadRigged;
+window.loadGlb = loadGlb;
+window.setMorph = setMorph;
+window.toggleAnim = toggleAnim;
+window.start = start;
 Promise.all([
   fetch('/api/characters').then(r=>r.json()),
   fetch('/api/rigged').then(r=>r.json()),
