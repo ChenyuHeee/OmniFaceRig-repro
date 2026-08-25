@@ -52,7 +52,7 @@ def _rigged():
     """Prebuilt rigged products (*_rigged.glb / *_im.glb / *_talk_*.glb)."""
     out = []
     for f in _list_glbs(OUTDIR):
-        if not (f.endswith(RIGGED_SUFFIX) or "_im.glb" in f or "_talk_" in f):
+        if not (f.endswith(RIGGED_SUFFIX) or "_im.glb" in f or "_talk" in f):
             continue
         p = os.path.join(OUTDIR, f)
         st = os.stat(p)
