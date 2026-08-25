@@ -224,7 +224,7 @@ def animate_glb(glb_path: str, out_path: str, track: list[tuple[str, float, floa
     bb.parts = [blob]
     bb.offset = len(blob)
     t_acc = bb.add_accessor(anim["times"], _ARRAY_BUFFER, "SCALAR", _FLOAT)
-    w_acc = bb.add_accessor(anim["weights"], _ARRAY_BUFFER, "SCALAR", _FLOAT)
+    w_acc = bb.add_accessor(anim["weights"].reshape(-1), _ARRAY_BUFFER, "SCALAR", _FLOAT)
     sampler = pygltflib.AnimationSampler(input=t_acc, output=w_acc)
     channel = pygltflib.AnimationChannel(
         sampler=len(gltf.animations or []),

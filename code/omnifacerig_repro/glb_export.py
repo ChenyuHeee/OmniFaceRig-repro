@@ -238,7 +238,8 @@ def build_gltf(
         weights = np.asarray(animation["weights"], dtype=np.float32)
         assert weights.shape == (len(times), len(target_accs))
         t_acc = bb.add_accessor(times, _ARRAY_BUFFER, "SCALAR", _FLOAT)
-        w_acc = bb.add_accessor(weights, _ARRAY_BUFFER, "SCALAR", _FLOAT)
+        # glTF WEIGHTS output is one SCALAR per morph weight per keyframe
+        w_acc = bb.add_accessor(weights.reshape(-1), _ARRAY_BUFFER, "SCALAR", _FLOAT)
         sampler = pygltflib.AnimationSampler(input=t_acc, output=w_acc)
         channel = pygltflib.AnimationChannel(
             sampler=0,
