@@ -49,10 +49,10 @@ def _characters():
 
 
 def _rigged():
-    """Prebuilt *_rigged.glb products with metadata (name/url/size/mtime)."""
+    """Prebuilt rigged products (*_rigged.glb / *_im.glb / *_talk_*.glb)."""
     out = []
     for f in _list_glbs(OUTDIR):
-        if not f.endswith(RIGGED_SUFFIX):
+        if not (f.endswith(RIGGED_SUFFIX) or "_im.glb" in f or "_talk_" in f):
             continue
         p = os.path.join(OUTDIR, f)
         st = os.stat(p)
