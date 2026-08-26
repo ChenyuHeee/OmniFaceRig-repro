@@ -37,7 +37,9 @@ def read_mesh(gltf, blob):
             pos = read(p.attributes.POSITION)
             idx = read(p.indices).ravel().reshape(-1, 3)
             Vs.append(pos)
-            Fs.append(off + idx)
+            # inner-mouth prims use uint16 indices; cast before adding the
+            # accumulated vertex offset of the (1M-vert) body mesh
+            Fs.append(off + idx.astype(np.int64))
             off += len(pos)
     return np.vstack(Vs), np.vstack(Fs)
 
@@ -98,7 +100,10 @@ def check(path):
         d = morphs.get(name)
         if d is None or np.abs(d).max() == 0:
             continue
-        n1 = face_normals(V + d.astype(np.float64), F)
+        # morph deltas cover the body prim only; inner-mouth prims stay put
+        Vd = V.copy()
+        Vd[: len(d)] = Vd[: len(d)] + d.astype(np.float64)
+        n1 = face_normals(Vd, F)
         fl = np.einsum("ij,ij->i", n0, n1) <= 0
         fa = float(a0[fl].sum())
         flip_area += fa
