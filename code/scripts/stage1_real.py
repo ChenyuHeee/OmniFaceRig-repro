@@ -135,41 +135,62 @@ def keypoints_from_landmarks(V, F, lms, img_h, img_w):
 # ---------------------------------------------------------------------------
 
 def geometric_anchors(V):
-    """Face anchors from mesh geometry (humanoid T-pose, frontal +z).
+    """Face anchors from mesh geometry (humanoid T-pose).
 
-    head cluster = top 18% of body height, central x band; face features by
-    classical proportions (eyes ~50%, mouth ~25% up from the chin); anchor
-    z from the front (+z) surface nearest the (x,y) position.
+    The frontal axis is auto-detected as the *thinner* horizontal axis
+    (body depth < body width): +X for Tripo-style models, +Z for TRELLIS
+    outputs.  head cluster = top 18% of body height (central band on both
+    horizontal axes); face features by classical proportions (eyes ~50%,
+    mouth ~25% up from the chin); anchor depth from the front surface
+    nearest the (width, height) position.
     """
     mn, mx = V.min(axis=0), V.max(axis=0)
-    H, W = mx[1] - mn[1], mx[0] - mn[0]
+    H = mx[1] - mn[1]
+    wx, wz = mx[0] - mn[0], mx[2] - mn[2]
+    if wx <= wz:
+        depth_axis, width_axis = 0, 2  # thin in X: frontal plane is YZ
+    else:
+        depth_axis, width_axis = 2, 0  # thin in Z: frontal plane is XY
     y_top = mx[1]
-    head_mask = (V[:, 1] > y_top - 0.18 * H) & (np.abs(V[:, 0]) < 0.20 * W)
-    idx = np.where(head_mask)[0]
-    if len(idx) < 100:
+    top = V[:, 1] > y_top - 0.18 * H
+    idx0 = np.where(top)[0]
+    if len(idx0) < 100:
         raise RuntimeError("head cluster not found")
-    Vh = V[idx]
+    Vh0 = V[idx0]
+    # central band on both horizontal axes (the head's own extents)
+    for ax in (depth_axis, width_axis):
+        lo, hi = Vh0[:, ax].min(), Vh0[:, ax].max()
+        band = (Vh0[:, ax] > lo + 0.05 * (hi - lo)) & (Vh0[:, ax] < hi - 0.05 * (hi - lo))
+        idx0 = idx0[band]
+        Vh0 = V[idx0]
+    if len(idx0) < 100:
+        raise RuntimeError("head cluster too small")
+    Vh = V[idx0]
     chin = Vh[:, 1].min()
     hh = y_top - chin
-    hw = Vh[:, 0].max() - Vh[:, 0].min()
-    zc = Vh[:, 2].mean()
-    front = Vh[:, 2] > zc  # +z assumed frontal
+    hw = Vh[:, width_axis].max() - Vh[:, width_axis].min()
+    dc = Vh[:, depth_axis].mean()
+    front = Vh[:, depth_axis] > dc  # +depth_axis assumed frontal
 
-    def anchor(x, y):
-        d2 = (Vh[:, 0] - x) ** 2 + (Vh[:, 1] - y) ** 2
+    def anchor(w, y):
+        d2 = (Vh[:, width_axis] - w) ** 2 + (Vh[:, 1] - y) ** 2
         d2[~front] = np.inf
         j = int(np.argmin(d2))
-        return np.array([x, y, Vh[j, 2]])
+        p = np.zeros(3)
+        p[1] = y
+        p[width_axis] = w
+        p[depth_axis] = Vh[j, depth_axis]
+        return p
 
-    cx = Vh[:, 0].mean()
+    cw = Vh[:, width_axis].mean()
     eye_y = chin + 0.52 * hh
     mouth_y = chin + 0.25 * hh
-    eye_dx = 0.30 * hw
+    eye_dw = 0.30 * hw
     return {
-        "eye_left": anchor(cx - eye_dx, eye_y),
-        "eye_right": anchor(cx + eye_dx, eye_y),
-        "mouth_center": anchor(cx, mouth_y),
-    }, idx
+        "eye_left": anchor(cw - eye_dw, eye_y),
+        "eye_right": anchor(cw + eye_dw, eye_y),
+        "mouth_center": anchor(cw, mouth_y),
+    }, idx0
 
 
 def face_region(V, F, keypoints, radius_frac=0.28):

@@ -258,8 +258,13 @@ function init(){
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   el.appendChild(renderer.domElement);
   scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.2));
-  scene.add(new THREE.DirectionalLight(0xffffff, 1.5));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 2.2));
+  const key = new THREE.DirectionalLight(0xffffff, 2.8);
+  key.position.set(1.5, 3, 2.5);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 1.2);
+  fill.position.set(-1.5, 0.5, -1.5);
+  scene.add(fill);
   camera = new THREE.PerspectiveCamera(40, el.clientWidth/el.clientHeight, 0.01, 100);
   camera.position.set(0, 0.9, 2.2);
   controls = new OrbitControls(camera, renderer.domElement);
@@ -298,6 +303,21 @@ async function loadGlb(url){
     model = gltf.scene;
     animClips = gltf.animations || [];
     scene.add(model);
+    // auto-orient: some generators (Tripo-style) model characters facing
+    // the X axis; rotate so the face points toward the camera (+Z)
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.x < size.z * 0.5){
+      model.rotation.y = -Math.PI / 2;
+      box.setFromObject(model);
+      box.getSize(size);
+    }
+    // auto-frame: center + fit the camera to the model
+    const center = box.getCenter(new THREE.Vector3());
+    const d = Math.max(size.x, size.y, size.z);
+    controls.target.copy(center);
+    camera.position.set(center.x, center.y + 0.35 * d, center.z + 1.6 * d);
+    camera.near = d / 100; camera.far = d * 50; camera.updateProjectionMatrix();
     model.traverse(o=>{ if (o.morphTargetDictionary){
       morphNames = Object.keys(o.morphTargetDictionary);
       o.morphTargetInfluences = new Array(morphNames.length).fill(0);
@@ -350,6 +370,15 @@ window.loadGlb = loadGlb;
 window.setMorph = setMorph;
 window.toggleAnim = toggleAnim;
 window.start = start;
+window.camera = camera;
+window.model = null; // replaced in loadGlb below
+// keep window.model in sync so external tooling can inspect the scene
+const _origLoadGlb = loadGlb;
+window.loadGlb = async (url) => {
+  const r = await _origLoadGlb(url);
+  window.model = model;
+  return r;
+};
 Promise.all([
   fetch('/api/characters').then(r=>r.json()),
   fetch('/api/rigged').then(r=>r.json()),
