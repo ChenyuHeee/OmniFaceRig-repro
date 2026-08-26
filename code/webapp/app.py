@@ -241,6 +241,7 @@ def index():
    <input type="range" id="w_eyeBlinkLeft" min="0" max="1" step="0.01" value="0" oninput="setMorph('eyeBlinkLeft',this.value)">
    <input type="range" id="w_mouthSmileRight" min="0" max="1" step="0.01" value="0" oninput="setMorph('mouthSmileRight',this.value)">
    <label style="margin:0"><input type="checkbox" id="play" onchange="toggleAnim(this.checked)"> 播放口型动画</label>
+   <button class="btn2" onclick="toggleView()">切换 面部/全身 视图</button>
   </div>
  </div>
 </div>
@@ -278,9 +279,39 @@ function init(){
 }
 function setStatus(txt, isErr){ const el = document.getElementById('status'); el.textContent = txt; el.className = isErr ? 'err' : ''; }
 function setMorph(name, v){
-  if (!model) return;
+  if (!model){
+    setStatus('请先在上方选择已有产物并点"加载预览"', true);
+    return;
+  }
   model.traverse(o=>{ if (o.morphTargetDictionary && o.morphTargetDictionary[name] !== undefined)
     o.morphTargetInfluences[o.morphTargetDictionary[name]] = parseFloat(v); });
+  setStatus(name + ' = ' + parseFloat(v).toFixed(2) + '  ← 实时预览中,可继续拖动');
+}
+let headFramed = true;
+function frameHead(){
+  if (!model) return;
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  if (headFramed){
+    // frame the head: top 22% of the model height, centered horizontally
+    const headH = size.y * 0.22;
+    const headCenter = new THREE.Vector3(center.x, center.y + size.y * 0.39, center.z);
+    controls.target.copy(headCenter);
+    const dist = headH * 2.6;
+    camera.position.set(headCenter.x, headCenter.y, headCenter.z + dist);
+    camera.near = dist / 200; camera.far = dist * 100; camera.updateProjectionMatrix();
+  } else {
+    const d = Math.max(size.x, size.y, size.z);
+    controls.target.copy(center);
+    camera.position.set(center.x, center.y + 0.35 * d, center.z + 1.6 * d);
+    camera.near = d / 100; camera.far = d * 50; camera.updateProjectionMatrix();
+  }
+}
+function toggleView(){
+  headFramed = !headFramed;
+  frameHead();
+  setStatus(headFramed ? '已聚焦面部(可拖拽旋转/滚轮缩放)' : '已显示全身(可拖拽旋转/滚轮缩放)');
 }
 function toggleAnim(on){
   if (!model) return;
@@ -318,11 +349,13 @@ async function loadGlb(url){
     controls.target.copy(center);
     camera.position.set(center.x, center.y + 0.35 * d, center.z + 1.6 * d);
     camera.near = d / 100; camera.far = d * 50; camera.updateProjectionMatrix();
+    frameHead();
     model.traverse(o=>{ if (o.morphTargetDictionary){
       morphNames = Object.keys(o.morphTargetDictionary);
       o.morphTargetInfluences = new Array(morphNames.length).fill(0);
     }});
-    setStatus('loaded ' + url + ' · morphs: ' + morphNames.length + ' · anims: ' + animClips.length);
+    setStatus('loaded ' + url + ' · morphs: ' + morphNames.length + ' · anims: ' + animClips.length
+      + ' · 拖动下方滑块/勾选播放动画');
   } catch (e) {
     console.error('[loadGlb] ' + (e && e.stack ? e.stack : e));
     setStatus('加载失败:' + url + ' (' + e + ')', true);
@@ -370,6 +403,7 @@ window.loadGlb = loadGlb;
 window.setMorph = setMorph;
 window.toggleAnim = toggleAnim;
 window.start = start;
+window.toggleView = toggleView;
 window.camera = camera;
 window.model = null; // replaced in loadGlb below
 // keep window.model in sync so external tooling can inspect the scene
