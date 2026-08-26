@@ -2,8 +2,6 @@
 .DS_Store
 ~$*.docx
 
-# 论文 PDF 已提交进仓库(26MB,便于接手 agent 无需外网下载)
-
 # 数据与产物不提交
 data/*
 !data/.gitkeep
@@ -15,4 +13,19 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-outputs/
+.pytest_cache/
+
+# 官方提供的测试资源(23 个 T-pose glb、2D 图、演示 glb/mov、服务器访问 docx)
+# 不随仓库分发:体积(1.3GB+)且含服务器凭据;需要时向课程 TA 获取
+glb and image testing/
+
+# 官方课程材料(Homework PDF / Lesson1 幻灯片):仅保留自撰的文本摘要
+docs/assignment/*.pdf
+docs/assignment/*.pptx
+
+# 内部验收日志(结论见 notes/验收报告.md)
+notes/accept_all*.log
+notes/rig_ops_accept.sh
+
+# 内部协作文档(含服务器细节,不公开)
+AGENTS.md

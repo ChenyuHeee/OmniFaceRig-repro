@@ -1,43 +1,66 @@
 # OmniFaceRig-repro
 
-> 论文 **OmniFaceRig**(Meta Reality Labs,SIGGRAPH Asia / TOG 2026,arXiv:2606.08043)的学习与复现仓库。
-> 任务:上传一张图像 → 输出带**运动骨骼 + 面部表情动画**的角色(glb 文件)。
+Reproduction of **[OmniFaceRig](https://omnifacerig.github.io/)** (Meta Reality Labs, SIGGRAPH Asia / TOG 2026, arXiv:2606.08043):
+**upload a 2D character image → get a rigged GLB with a motion skeleton + 52 ARKit facial blendshapes + real audio lip-sync (Chinese & English).**
 
-- 项目页:https://omnifacerig.github.io/
-- 论文:arXiv:2606.08043(PDF 已入库,在 `paper/`)
-- 官方作业原文:见 `docs/assignment/`(Homework-Deeptech.pdf 第 9 页为交付物出处)
-- 状态:课程 challenge(个人)· 私有仓库
+## 🖥️ Live demo (A100 server)
 
-## 交付物
+> **http://175.155.64.171:32170/** — pick a pre-rigged character (23 official T-pose avatars), preview 52 blendshapes, play lip-sync animations, or upload your own image for the full pipeline (image → mesh → rig → expression → lip-sync, ~2–3 min).
 
-1. A100 服务器上的**完整可预览项目**(链接可跑通全流程)
-2. 满足 omnifacerig.github.io 要求:图 → 带骨骼 + 表情的 glb
-3. 面部表情**无破损**;牙齿与口腔内部**定位与动画正确**
-4. 支持 **ARKit 52 blendshapes** 全集
-5. **中、英文**音频口型同步,对齐正确
-
-## 仓库结构
+## Pipeline
 
 ```
-OmniFaceRig-repro/
-├── paper/           # 论文 PDF + 提取全文 + 精读笔记
-├── notes/           # 进度、需求核实、组件调研(components/)
-├── docs/assignment/ # 官方作业文档与 challenge 要求原文
-├── code/            # 复现代码
-├── data/            # glb 模型、输入图、测试集(gitignore)
-└── outputs/         # 生成的 glb 与演示视频(gitignore)
+2D image ──► TRELLIS (image→3D mesh, ~2min) ──► stage1_real.py
+                (or official T-pose GLB)           ├─ 53-joint Mixamo-style skeleton (proportional skinning)
+                                                  ├─ 52 ARKit blendshapes (sparse morph targets, delta-field smoothed)
+                                                  ├─ inner mouth: teeth / gums / tongue (ICT-FaceKit assets + ARAP/SDF)
+                                                  └─ viseme idle animation
+       ──► animate_audio.py: text → piper TTS → faster-whisper word timestamps → visemes → ARKit WEIGHTS animation
 ```
 
-## 时间线
+## Deliverables / acceptance (all verified on 23/23 official characters)
 
-| 截止 | 事项 |
+| Check | Result |
 |---|---|
-| 08-19 24:00 | 报名(已确认 ✅) |
-| 08-23 23:59 | 中期个人作业(梦想职业游戏) |
-| 08-26 23:59 | 团队 final(50 分) |
-| 08-27 | 汇报日 + Formal Hall |
-| challenge 截止 | 以 TA 通知为准 |
+| Motion skeleton | 53 Mixamo-style joints per character (requirement ≥ 20) |
+| Unbroken expressions | flipped-triangle area 0.003%–0.044% at weight 1.0 (threshold < 0.1%) |
+| Inner mouth | teeth upper/lower + gums/tongue, positioned & animated with the jaw |
+| ARKit 52 | target names exactly match the official ARKit 52 set |
+| Lip-sync | Chinese (zh_CN-huayan) & English (en_US-lessac) piper voices + faster-whisper alignment |
 
-## 进展
+## Repo layout
 
-见 `notes/进度.md`。
+```
+code/
+  omnifacerig_repro/   core library: glb export, arkit52, inner_mouth, lip_sync, pipeline
+  scripts/             stage1_real.py (rig), trellis_front.py (image→mesh), animate_audio.py, deliverables_check.py
+  webapp/              Flask preview app (self-hosted three.js, no CDN)
+  vendor/              ICT-FaceKit & Vasiliskatr (licensed, see their LICENSE files)
+tests/                 60+ unit tests (pytest)
+paper/                 OmniFaceRig paper (arXiv)
+notes/                 progress, acceptance report, component deep-dives
+docs/assignment/       original challenge requirements (text summary)
+```
+
+## Run locally
+
+```bash
+cd code
+pip install -e .            # pygltflib, numpy, scipy, pyyaml, ...
+python -m pytest ../tests   # 60+ tests, no external assets needed
+
+# rig an official T-pose GLB:
+python scripts/stage1_real.py --glb avatar.glb --inner-mouth --out rigged.glb --text "Hello world"
+# audio lip-sync on the rigged result:
+python scripts/animate_audio.py --glb rigged.glb --out talk.glb --text "Hello world" --lang en
+# image → mesh (needs TRELLIS weights + GPU):
+python scripts/trellis_front.py --image avatar.png --out mesh.glb
+```
+
+The full image→rigged loop also runs from the web UI (`image_to_mesh=1`), which the A100 deployment uses.
+
+## Notes
+
+- The 23 official T-pose avatar GLBs and 2D images are course-provided assets and are **not** redistributed in this repository (see `docs/assignment/` for the original requirements).
+- Vendored third-party code keeps its own licenses (`code/vendor/*/LICENSE`); three.js r160 is vendored for the offline web preview.
+- Full technical write-ups live in `notes/` (deployment records, acceptance report, per-component deep dives).
